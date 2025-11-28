@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lastz-bot"
+version = "0.1.0"
+description = "Automation scaffolding for Last Z farm routines via BlueStacks + ADB"
+authors = [{ name = "Cristobal Bot" }]
+requires-python = ">=3.10"
+dependencies = [
+    "PyYAML>=6.0",
+    "pydantic>=2.4",
+    "rich>=13.0",
+    "opencv-python>=4.9",
+    "numpy>=1.26"
+]
+dynamic = ["readme"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+lastz-bot = "lastz_bot.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

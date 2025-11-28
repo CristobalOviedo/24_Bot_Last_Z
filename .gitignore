@@ -1,0 +1,12 @@
+debug_reports/
+tests/
+.vscode/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+thumbs.db
+state/*.json
+.pytest_cache/  
+.conda/
+

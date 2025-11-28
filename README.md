@@ -1,0 +1,143 @@
+# Last Z Farm Automation (Prototype)
+
+Este repositorio contiene un andamiaje base para automatizar rutinas de granjas en **Last Z** utilizando BlueStacks y ADB. El objetivo es tener una arquitectura modular donde cada tarea del juego (correo, VIP, zombis, recursos) sea un "task" independiente que pueda encadenarse según la rutina necesaria (diaria, cada 8 horas, eventos, etc.).
+
+## Características actuales
+
+- Carga de configuración YAML para describir instancias, rutinas y layout de botones.
+- Controlador ADB que puede operar en modo real o `--simulate` (solo loguea los comandos).
+- Administración opcional de instancias BlueStacks (abrir/cerrar) mediante la CLI oficial.
+- Registro centralizado con Rich + bitácora por granja.
+- Motor de visión simple (OpenCV) para esperar a que la ciudad esté visible y localizar las "X" de los popups antes de tocar.
+- Persistencia diaria de tareas (correo, VIP, Fury Lord, etc.) para que cada granja solo ejecute lo necesario una vez por día.
+- Detector unificado del estado de las tropas en el mapa mundial para decidir qué slot está libre, en marcha, recolectando o combatiendo.
+- Tareas iniciales implementadas:
+  - `close_popups`
+  - `collect_mail`
+  - `collect_vip`
+  - `attack_boomer`
+  - `gather_resources`
+  - `attack_furylord`
+  - `rally_boomer`
+  - `claim_quick_rewards`
+  - `claim_rss_exploracion`
+  - `claim_daily_quests`
+  - `daily_arena`
+  - `caravan`
+  - `trucks`
+  - `bounty_missions`
+  - `heal_troops`
+
+## Requisitos
+
+- Python 3.10+
+- BlueStacks con `HD-Adb.exe` y `HD-Player.exe` accesibles.
+- Plantillas de coordenadas para la resolución usada por tus instancias (el archivo de ejemplo asume 1080p).
+
+## Instalación
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+> Si prefieres usar Conda, recuerda instalar `opencv-python` y `numpy`, requisitos del motor de visión.
+
+## Ejecución básica
+
+```bash
+python -m lastz_bot.cli --config config/farms.yaml --routine daily-basic --simulate
+```
+
+Parámetros clave:
+
+- `--routine`: rutina definida en el YAML.
+- `--task`: ejecuta únicamente la tarea indicada sin importar la rutina configurada (no se puede combinar con `--routine`).
+- `--batch-start` / `--batch-size`: permite seleccionar qué subconjunto de granjas ejecutar (por defecto 3 a la vez).
+- `--farms`: lista de nombres separados por coma para seleccionar manualmente.
+- `--simulate`: evita enviar comandos reales a ADB/BlueStacks.
+
+## Estructura del YAML
+
+Consulta `config/farms.yaml` para ver cómo describir:
+
+- `instances`: tus granjas (nombre, instancia de BlueStacks, puerto ADB y rutina).
+- `routines`: lista ordenada de tareas y parámetros.
+- `layouts`: coordenadas de botones que los tasks consumen.
+- `bluestacks`: ruta a `HD-Player.exe` y los timeouts de inicio/cierre para cada instancia.
+- `templates`: rutas a imágenes recortadas (ej. `assets/templates/world_button.png`) usadas para validar que el juego esté listo o que exista un botón "X" real antes de tocar.
+- `launch_game_icon`: define un template (ej. `assets/templates/launch_game_icon.png`) para que el runner busque el ícono del juego en el launcher antes de tocar; si falta, se usará la coordenada `buttons.launch_game` como respaldo.
+- `initial_popup_*`: controla cuántos popups iniciales intentar cerrar antes de esperar el template `game_ready` (intentos, timeout y delay entre cierres).
+- `daily_tracking`: archivo donde se registra qué tareas se completaron tras el último reset diario (por defecto 23:00 hora local). Puedes definir `tracked_tasks` como mapa `task: limite` para tareas que requieren múltiples intentos (p. ej. `attack_furylord: 4`).
+- `claim_quick_rewards`: puedes ajustar `post_claim_delay` y `overlay_dismiss_tap` para cerrar los overlays que cubren la pantalla después de reclamar botines como `amelia_blueprints`.
+- `claim_quick_rewards`: puedes ajustar `post_claim_delay` y `overlay_dismiss_tap` para cerrar los overlays que cubren la pantalla después de reclamar botines como `amelia_blueprints`, y añadir plantillas adicionales en `reward_templates` (ej. `alliance_help_button`) para botones que solo requieren un toque directo.
+- `caravan`: define `icon_template` (por defecto `caravan_icon`) y usa los botones `caravan_*` en el layout para seleccionar el nivel anterior, confirmar la advertencia, elegir color (rojo/azul/amarillo), héroes (`caravan_hero_slot_1` a `_5`), saltar etapas (`caravan_skip_button`) y avanzar con `caravan_continue`; `battle_ready_template` te permite validar con una captura que la pantalla de combate realmente cargó antes de elegir héroes (si no aparece, el campo se cancela para evitar toques fuera de lugar), `battlefields` describe la secuencia rojo→azul→amarillo y cuándo pulsar la flecha (`caravan_next_battlefield`), `battlefield_color_templates` (tres imágenes, una por color) permiten que el bot identifique automáticamente qué campo está abierto antes de elegir color/héroes, y `battlefield_completed_templates` agrega una verificación visual extra para omitir campos que ya fueron finalizados antes de arrancar una nueva serie. Además, `post_field_delay` inserta una pausa antes de tocar el siguiente color y `battlefield_switch_attempts` controla cuántas veces se reintenta el cambio verificando con las plantillas antes de abortar. Si el icono no está presente en la pantalla principal, la tarea se omite automáticamente.
+- `trucks`: usa las plantillas `truck_*` para abrir el panel, identificar slots libres y lanzar hasta tres camiones simultáneos, relanzando el dado (`truck_dice`) hasta conseguir rareza morada/naranja o agotar `max_rerolls`. Los cofres detectados con `truck_reward` se reclaman y se registran en el tracker diario (`trucks: 4`) para respetar el máximo de envíos por granja; ajusta `max_concurrent_slots`, `daily_limit`, `rarity_templates` y los `*_threshold` según tus capturas. Si el juego muestra la advertencia de reroll para rarezas altas, define `truck_warning_window` / `truck_warning_cancel` para que el bot pulse “Cancelar” y conserve el camión naranja/morado antes de tocar “Enviar”. También puedes forzar un ciclo de solo-recompensas con `collect_rewards_only: true` (opcionalmente junto con `skip_daily_limit_check: true`) para abrir el panel, reclamar cofres pendientes y salir sin intentar nuevos envíos. Para sincronizar el límite diario con lo que muestra el juego, especifica `sent_counter_templates` (0→4) apuntando a las capturas del contador “X/4” en el menú; el bot leerá ese valor antes de enviar más camiones y actualizará el `daily_tracker` con la cifra visual, evitando desfaces incluso tras reinicios o errores anteriores. Ajusta `sent_counter_threshold`/`sent_counter_timeout` si tus recortes requieren otro umbral o más tiempo de lectura. Si notas falsos positivos en la rareza (ej. camiones azules detectados como morados), utiliza `rarity_template_thresholds` para definir un umbral distinto por plantilla (ej. `truck_purple: 0.93`, `truck_orange: 0.86`); el bot aplicará ese valor al evaluar cada recorte antes de decidir si enviar o relanzar.
+- `trucks`: usa las plantillas `truck_*` para abrir el panel, identificar slots libres y lanzar hasta tres camiones simultáneos, relanzando el dado (`truck_dice`) hasta conseguir rareza morada/naranja o agotar `max_rerolls`. Los cofres detectados con `truck_reward` se reclaman y se registran en el tracker diario (`trucks: 4`) para respetar el máximo de envíos por granja; ajusta `max_concurrent_slots`, `daily_limit`, `rarity_templates` y los `*_threshold` según tus capturas. Si el juego muestra la advertencia de reroll para rarezas altas, define `truck_warning_window` / `truck_warning_cancel` para que el bot pulse “Cancelar” y conserve el camión naranja/morado antes de tocar “Enviar”. También puedes forzar un ciclo de solo-recompensas con `collect_rewards_only: true` (opcionalmente junto con `skip_daily_limit_check: true`) para abrir el panel, reclamar cofres pendientes y salir sin intentar nuevos envíos. Para sincronizar el límite diario con lo que muestra el juego, especifica `sent_counter_templates` (0→4) apuntando a las capturas del contador “X/4” en el menú; el bot leerá ese valor antes de enviar más camiones y actualizará el `daily_tracker` con la cifra visual, evitando desfaces incluso tras reinicios o errores anteriores. Ajusta `sent_counter_threshold`/`sent_counter_timeout` si tus recortes requieren otro umbral o más tiempo de lectura. Si notas falsos positivos en la rareza (ej. camiones azules detectados como morados), utiliza `rarity_template_thresholds` para definir un umbral distinto por plantilla (ej. `truck_purple: 0.93`, `truck_orange: 0.86`); el bot aplicará ese valor al evaluar cada recorte antes de decidir si enviar o relanzar. Después de cada envío y cuando el juego avisa que llegaste al límite diario, el contador interno también se forza al mismo número para que `daily_tasks.json` nunca se quede con 3/4 cuando la interfaz ya marcó 4/4 (incluso en disparos automáticos por ícono rojo).
+- `bounty_missions`: abre el panel desde el ícono `bounty_icon`, verifica el encabezado `bounty_menu_header` y recorre los botones `Go` (`bounty_go_button`) visibles. Cada misión se abre tocando `Go`, usa `bounty_quick_deploy` para seleccionar héroes y confirma con `bounty_send_button` (o cualquier variante añadida en `send_button_templates`). Tras tocar "Enviar" el juego vuelve al mapa, por lo que el bot simplemente espera a ver de nuevo el icono `bounty_icon` y lo toca para reabrir la lista antes de buscar otro `Go`; no pulsa `back_button` en este flujo. El registro diario se actualiza en cada envío y se evita repetir misiones cuyos héroes están ocupados: si no capturas el popup `bounty_hero_busy`, el bot detecta el caso cuando el panel de despliegue permanece abierto tras tocar "Enviar". De la misma forma, cuando ya no hay botones `Go`, asume que no quedan misiones incluso sin `bounty_no_missions` / `bounty_mission_badge`. Ajusta `max_missions_per_run`, `max_dispatch_fail_safe`, `go_button_scan_limit`, `*_threshold`, `hero_busy_dismiss_button` y los delays según tus capturas; en `assets/templates/bounty/README.md` encontrarás qué recortes son obligatorios y cuáles opcionales. Si el juego muestra un mensaje rápido de error después de "Enviar", el fail-safe (`max_dispatch_fail_safe`, 12 por defecto) corta la tarea tras N envíos consecutivos para evitar bucles infinitos; sube o baja ese valor según qué tan agresivamente quieras que abandone la tarea.
+- **Disparador de camiones**: si el layout define `truck_alert_icon` (por ejemplo `assets/templates/truck/truck_icon_alert.png`) y el bot detecta el punto rojo en la pantalla principal, ejecutará automáticamente la tarea `trucks` en modo solo-recompensas, ignorando el límite diario de envíos para poder reclamar cofres incluso cuando ya despachaste los 4 camiones. Ajusta los timings `truck_alert_threshold` y `truck_alert_cooldown_seconds` en el YAML si necesitas un umbral o enfriamiento distinto.
+- `heal_troops`: navega al mapa mundial usando `world_button`, localiza el ícono de curación (`healing_icon`) y pulsa `healing_button` para arrancar la cura automática. Si el script encuentra `healing_icon_troops`, recoge las tropas terminadas antes de solicitar ayuda de alianza con `healing_icon_handshake` y finalmente vuelve a la sede con `sede_button`. Ajusta los `*_threshold`, delays y `max_collect_cycles` para que coincidan con tus capturas.
+- `investigation`: abre el panel mediante `research_icon`, completa la investigación vigente y vuelve a Alliance Recognition para elegir un nodo nuevo. Puedes seguir usando la lista `nodes` (coordenadas fijas), pero ahora también puedes definir `node_templates` con los nombres de tus recortes de íconos para que el bot detecte cualquier nodo visible sin importar el scroll. Cada template puede aportar su propio `max_region_offset`; si lo omites, se usa `default_max_region_offset`, que replica la caja usada históricamente para revisar la etiqueta `MAX`. Ajusta `node_template_threshold` y `node_template_max_results` según la calidad de tus capturas.
+- `investigation`: abre el panel mediante `research_icon`, completa la investigación vigente y vuelve a Alliance Recognition para elegir un nodo nuevo. Cuando el juego te envía directo a la rama recomendada, define `recommended_panel_templates` (y opcionalmente `recommended_back_templates`) para que el bot detecte ese menú y pulse “Back” antes de continuar; si no se provee template de regreso, se usará `key_back`. Sigue disponible la lista `nodes` (coordenadas fijas), pero ahora también puedes definir `node_templates` con los nombres de tus recortes de íconos para que el bot detecte cualquier nodo visible sin importar el scroll. Cada template puede aportar su propio `max_region_offset`; si lo omites, se usa `default_max_region_offset`, que replica la caja usada históricamente para revisar la etiqueta `MAX`. Ajusta `node_template_threshold` y `node_template_max_results` según la calidad de tus capturas.
+- `gather_cycle`: ajusta `level_indicator_threshold` (por defecto 0.975) y `level_detection_order` para priorizar niveles altos (`"desc"`) cuando varias plantillas son similares; la tarea ahora recorre `resource_priority` en cada nivel antes de descender (ej. prueba madera nvl 6, luego comida nvl 6, y recién después baja a nvl 5), puedes forzar la pestaña correcta usando `resource_tab_button`/`resource_tab_delay`, y `level_overrides` permite fijar otros niveles para granjas puntuales (ej. `Farm-06` a `Farm-12` bloqueadas en nivel 4 mientras suben poder). El flujo limita por defecto a dos tropas simultáneas (`max_troops: 2`) para dejar un slot libre para Fury Lord; ajusta la rutina o los overrides si alguna granja necesita volver temporalmente a 3. Cuando el layout tiene `troop_state`, la tarea cuenta tanto las tropas ya recolectando como las que van en marcha y solo dispara nuevos envíos si la suma sigue por debajo del límite, para evitar que el retraso visual (hasta ~5 minutos) genere un tercer envío.
+- `attack_furylord`: usa `availability_hours` (ej. `[23, 5, 11, 17]`), `availability_window_hours` (duración en horas) y `skip_when_unavailable` para omitir la tarea fuera de las ventanas activas; además `idle_retry_delay` (por defecto 30s) fuerza una espera y reintento cuando no hay tropas libres tras un ataque previo, evitando que el ciclo termine antes de completar los 4 intentos diarios. Cuando detecta el panel `furylord_rewards` reclama la recompensa diaria, marca `claimed: true` en `daily_tasks` y solo entonces deja de abrir el evento, así que asegúrate de capturar la plantilla en `assets/templates/furylord_rewards.png`.
+- `rally_boomer`: comparte los mismos templates base del mapa (`search_icon`, `search_button`, `level_indicator_*`, `level_increase_button`, etc.) y añade los específicos de boomer (`boomer_icon`, `boomer_team_up_button`, `boomer_rally_icon`, `boomer_auto_union_*`, `boomer_event_icon`). La tarea abre el mapa, hace el swipe inverso para que aparezca el ícono del Boomer, espera `level_detection_delay` (1 s por defecto) para que el panel termine de animar y alinea el nivel deseado (1–8) con las mismas plantillas que usa `gather_cycle`. Si la coincidencia no supera `level_indicator_threshold`, se registra el mejor valor y se vuelve a intentar automáticamente con un umbral 0.1 más bajo para que los nuevos recortes (p. ej. nivel 8) puedan ser reconocidos sin tocar nada adicional; también puedes definir `level_indicator_region_<n>` en el YAML si cada nivel está en una zona distinta del slider. Tras pulsar “Buscar” el script primero espera a que aparezca `boomer_team_up_button`; solo si no lo detecta intenta el tap de enfoque (`map_result_tap`) y vuelve a buscar el botón, evitando los taps extra cuando el juego ya muestra “Team Up” automáticamente. Luego asigna la tropa que esté descansando (por defecto slot A, ya que B y C quedan ocupadas recolectando) y, tras pulsar “March”, espera a que el slot vuelva a estado `IDLE` (gracia de 45 s + timeout de 180 s) antes de lanzar el siguiente rally, respetando el límite diario (`daily_limit: 7`). Además, cada 12 h reactiva la función “Auto Unión” entrando al icono rojo del rally o, si ya expiró antes de correr la rutina, viaja al Centro de Eventos, abre el evento de Boomer y pulsa los botones `boomer_auto_union_button` / `boomer_auto_union_activate`. El último timestamp queda guardado en `daily_tasks.json` bajo `boomer_auto_union`, por lo que puedes ajustar el periodo (`auto_union_refresh_hours`) o dispararlo manualmente si necesitas más frecuencia.
+- **Detección de tropas**: cada layout puede definir un bloque `troop_state` con las coordenadas fijas de los slots y las plantillas de los íconos que indican su estado. Ejemplo:
+
+  ```yaml
+  layouts:
+    1080p-default:
+      buttons: {...}
+      templates:
+        troop_state_marching: assets/templates/troops/state_marching.png
+        troop_state_stationed: assets/templates/troops/state_stationed.png
+        troop_state_returning: assets/templates/troops/state_returning.png
+        troop_state_gathering: assets/templates/troops/state_gathering.png
+        troop_state_rally: assets/templates/troops/state_rally.png
+        troop_state_combat: assets/templates/troops/state_combat.png
+      troop_state:
+        detection_threshold: 0.83  # opcional, 0.85 por defecto
+        slots:
+          alpha:
+            tap: [125, 525]               # punto exacto donde se selecciona la tropa
+            indicator_region:             # región normalizada (y, x) del ícono sobre la tropa
+              - [0.60, 0.72]
+              - [0.08, 0.16]
+            label: "A"
+          bravo:
+            tap: [330, 525]
+            indicator_region:
+              - [0.60, 0.72]
+              - [0.36, 0.44]
+          charlie:
+            tap: [535, 525]
+            indicator_region:
+              - [0.60, 0.72]
+              - [0.63, 0.71]
+        state_templates:
+          marching: ["troop_state_marching"]
+          stationed: ["troop_state_stationed"]
+          returning: ["troop_state_returning"]
+          gathering: ["troop_state_gathering"]
+          rally: ["troop_state_rally"]
+          combat: ["troop_state_combat"]
+  ```
+
+  Captura un recorte de cada ícono (marcha, recolección, retorno, rally, combate, ocupando) y guárdalo con los nombres anteriores bajo `assets/templates/troops/`. Puedes añadir más estados (ej. `reinforce`, `patrol`) agregando nuevas entradas en `state_templates`. Si el layout no define `troop_state`, las tareas volverán automáticamente al método antiguo que busca el sprite `ZZZ`, pero una vez configurado `gather_cycle` y `attack_furylord` usarán esta tabla para saber cuántas tropas están libres. Cuando los `tap` estén bien centrados, deja `idle_tap_offset: [0, 0]` en las tareas para evitar correcciones adicionales.
+
+## Registro diario de tareas
+
+El bloque `daily_tracking` del YAML permite evitar tareas repetidas antes del próximo reset del servidor (23:00 hora local por defecto). El runner guarda un JSON (ej. `state/daily_tasks.json`) con la hora exacta en que cada granja completó las tareas listadas en `tracked_tasks`. Para tareas con límite 1 (como `collect_mail` o `collect_vip`) solo se marca `completed: true`; para tareas con límites mayores se mantiene un contador (`attack_furylord: 4`) y la rutina retoma donde quedó si algo falla a mitad de camino.
+
+Si necesitas reiniciar el conteo manualmente basta con borrar el JSON o cambiar la hora de reset. El archivo se recrea solo en la próxima ejecución.
+
+## Próximos pasos sugeridos
+
+1. Ajustar coordenadas para cada resolución o perfil.
+2. Añadir lógica de reconocimiento visual (por ejemplo, OpenCV) para validar estados antes de tocar.
+  - El repo ya incluye una base (`VisionHelper`). Solo necesitas colocar tus plantillas en `assets/templates/` y referenciarlas en el YAML.
+3. Integrar un scheduler (Windows Task Scheduler o servicio residente) que invoque `lastz-bot` en los horarios deseados.
+4. Crear tareas adicionales (donaciones de alianza, eventos, etc.) siguiendo el patrón de `tasks/`.
+
+> **Nota:** Este proyecto es un prototipo pensado para ayudarte a validar el flujo. Antes de ejecutar en modo real, usa `--simulate` y revisa los logs para asegurarte de que los pasos coinciden con tu layout.

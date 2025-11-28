@@ -1,0 +1,1147 @@
+adb:
+  executable: "C:/Program Files/BlueStacks_nxt/HD-Adb.exe"
+  host: "127.0.0.1"
+  connect_timeout: 25
+  command_timeout: 20
+
+bluestacks:
+  player_path: "C:/Program Files/BlueStacks_nxt/HD-Player.exe"
+  instance_cli: "C:/Program Files/BlueStacks_nxt/HD-MultiInstanceManager.exe"
+  start_timeout: 45
+  shutdown_timeout: 10
+
+instance_warmup_seconds: 0
+game_launch_wait_seconds: 0
+initial_popup_max_attempts: 3
+initial_popup_first_timeout: 120
+initial_popup_next_timeout: 7
+initial_popup_delay: 2.0
+ready_template_timeout: 15
+ready_template_poll: 1.0
+
+daily_tracking:
+  enabled: true
+  storage_path: "state/daily_tasks.json"
+  reset_hour_local: 23
+  tracked_tasks:
+    collect_mail: 1
+    collect_vip: 1
+    attack_furylord: 4
+    trucks: 4
+    bounty_missions: 7
+    radar_quests: 1
+    rally_boomer: 5
+    boomer_auto_union: 1
+    claim_daily_quests: 1
+    daily_arena: 1
+    investigation: 1
+
+default_layout: "540p"
+tesseract_cmd: "C:/Program Files/Tesseract-OCR/tesseract.exe"
+
+layouts:
+  "540p":
+    buttons:
+      common:
+        close_popup: [539, 0]
+        launch_game: [435, 150]
+        back_button: [35, 915]
+      collect_mail:
+        mail: [505, 785]
+        mail_alliance_tab: [225, 85]
+        mail_system_tab: [315, 85]
+        mail_collect_all: [425, 915]
+      collect_vip:
+        vip: [25, 115]
+        vip_reward: [475, 205]
+        vip_bonus: [445, 675]
+        vip_overlay_close: [539, 0]
+      gather_cycle:
+        map: [1050, 610]
+        map_search: [1020, 80]
+        map_boomer_option: [500, 320]
+        map_search_confirm: [900, 620]
+        map_rally: [900, 640]
+        map_march: [950, 640]
+        map_resource_tab: [200, 140]
+        map_resource_food: [220, 240]
+        map_resource_wood: [220, 310]
+        map_gather: [900, 640]
+      caravan:
+        caravan_prev_level: [185, 555]
+        caravan_color_red: [200, 850]
+        caravan_color_blue: [335, 850]
+        caravan_color_yellow: [470, 850]
+        caravan_hero_slot_1: [100, 600]
+        caravan_hero_slot_2: [185, 600]
+        caravan_hero_slot_3: [275, 600]
+        caravan_hero_slot_4: [350, 600]
+        caravan_hero_slot_5: [450, 600]
+        caravan_skip_button: [420, 800]
+        caravan_next_battlefield: [450, 305]
+    templates:
+      common:
+        launch_game_icon:
+          - assets/templates/launch_game_icon.png
+        popup_close:
+          - assets/templates/popup_close.png
+          - assets/templates/popup_close_alt.png
+          - assets/templates/popup_close_alt2.png
+          - assets/templates/popup_close_alt3.png
+          - assets/templates/popup_close_alt4.png
+        level_up_overlay:
+          - assets/templates/level_up_overlay.png
+        back_button_icon:
+          - assets/templates/back_button.png
+        world_button: assets/templates/world_button.png
+        idle_troop_sleep:
+          - assets/templates/idle_troop_sleep.png
+          - assets/templates/idle_troop_sleep_alt.png
+          - assets/templates/idle_troop_sleep_alt2.png
+          - assets/templates/idle_troop_sleep_alt3.png
+          - assets/templates/idle_troop_sleep_alt4.png
+          - assets/templates/idle_troop_sleep_alt5.png
+          - assets/templates/idle_troop_sleep_alt6.png
+        event_center_button:
+          - assets/templates/event_center_button.png
+        march_button:
+          - assets/templates/march_button.png
+          - assets/templates/march_button_alt.png
+        sede_button:
+          - assets/templates/sede_button.png
+        troop_empty:
+          - assets/templates/troop_empty.png
+      collect_mail:
+        mail_reward_overlay:
+          - assets/templates/mail_reward_overlay.png
+      collect_vip:
+        vip_reward_overlay:
+          - assets/templates/vip_reward_overlay.png
+        vip_bonus_overlay:
+          - assets/templates/vip_bonus_overlay.png
+      attack_furylord:
+        furylord_icon:
+          - assets/templates/furylord/furylord_icon.png
+          - assets/templates/furylord/furylord_icon_alt.png
+        furylord_go_button:
+          - assets/templates/furylord/furylord_go_button.png
+        furylord_attack_button:
+          - assets/templates/furylord/furylord_attack_button.png
+        furylord_completed:
+          - assets/templates/furylord/furylord_completed.png
+        furylord_warning:
+          - assets/templates/furylord/furylord_warning.png
+        furylord_warning_cancel:
+          - assets/templates/furylord/furylord_warning_cancel.png
+        furylord_record:
+          - assets/templates/furylord/furylord_record.png
+        furylord_rewards:
+          - assets/templates/furylord/furylord_rewards.png
+      trucks:
+        truck_icon:
+          - assets/templates/truck/truck_icon.png
+        truck_alert_icon:
+          - assets/templates/truck/truck_icon_alert.png
+        truck_send_menu:
+          - assets/templates/truck/truck_send_menu.png
+        truck_empty_slot:
+          - assets/templates/truck/truck_empty_slot.png
+        truck_reward:
+          - assets/templates/truck/truck_reward.png
+        truck_menu_reward:
+          - assets/templates/truck/truck_menu_reward.png
+        truck_orange:
+          - assets/templates/truck/truck_orange.png
+        truck_purple:
+          - assets/templates/truck/truck_purple.png
+        truck_dice:
+          - assets/templates/truck/truck_dice.png
+        truck_send_button:
+          - assets/templates/truck/truck_send_button.png
+        truck_warning_window:
+          - assets/templates/truck/truck_warning_window.png
+        truck_warning_cancel:
+          - assets/templates/truck/truck_warning_cancel.png
+        truck_sent_counter_0:
+          - assets/templates/truck/truck_sent_counter_0.png
+        truck_sent_counter_1:
+          - assets/templates/truck/truck_sent_counter_1.png
+        truck_sent_counter_2:
+          - assets/templates/truck/truck_sent_counter_2.png
+        truck_sent_counter_3:
+          - assets/templates/truck/truck_sent_counter_3.png
+        truck_sent_counter_4:
+          - assets/templates/truck/truck_sent_counter_4.png
+      bounty_missions:
+        bounty_icon:
+          - assets/templates/bounty/bounty_icon.png
+        bounty_menu_header:
+          - assets/templates/bounty/bounty_menu_header.png
+        bounty_go_button:
+          - assets/templates/bounty/bounty_go_button.png
+        bounty_quick_deploy:
+          - assets/templates/bounty/bounty_quick_deploy.png
+        bounty_send_button:
+          - assets/templates/bounty/bounty_send_button.png
+        bounty_claim_button:
+          - assets/templates/bounty/bounty_claim_button.png
+        bounty_no_missions:
+          - assets/templates/bounty/bounty_no_missions.png
+        bounty_hero_busy:
+          - assets/templates/bounty/bounty_hero_busy.png
+        bounty_mission_badge:
+          - assets/templates/bounty/bounty_mission_badge.png
+      radar_quests:
+        radar_icon:
+          - assets/templates/radar_quests/radar_icon.png
+        radar_world_icon:
+          - assets/templates/radar_quests/radar_world_icon.png
+        radar_alert_icon:
+          - assets/templates/radar_quests/radar_alert_icon.png
+        radar_menu_header:
+          - assets/templates/radar_quests/radar_menu_header.png
+        radar_claim_button:
+          - assets/templates/radar_quests/radar_claim_button.png
+        radar_laura_button:
+          - assets/templates/radar_quests/radar_laura_button.png
+        radar_special_mission_icon:
+          - assets/templates/radar_quests/radar_special_mission_icon.png
+        radar_special_go_button:
+          - assets/templates/radar_quests/radar_special_go_button.png
+        radar_attack_button:
+          - assets/templates/radar_quests/radar_attack_button.png
+        radar_help_mission_icon:
+          - assets/templates/radar_quests/radar_help_mission_icon.png
+          - assets/templates/radar_quests/radar_help_mission_icon_alt.png
+          - assets/templates/radar_quests/radar_help_mission_icon_alt2.png
+          - assets/templates/radar_quests/radar_help_mission_icon_alt3.png
+        radar_help_button:
+          - assets/templates/radar_quests/radar_help_button.png
+      investigation:
+        research_icon:
+          - assets/templates/investigation/research_icon.png
+        research_panel_header:
+          - assets/templates/investigation/research_panel_header.png
+        research_complete_button:
+          - assets/templates/investigation/research_complete_button.png
+        research_start_button:
+          - assets/templates/investigation/research_start_button.png
+        research_alliance_button:
+          - assets/templates/investigation/research_alliance_button.png
+        research_node_invest_button:
+          - assets/templates/investigation/research_node_invest_button.png
+        research_help_button:
+          - assets/templates/investigation/research_help_button.png
+        research_max_label:
+          - assets/templates/investigation/research_max_label.png
+          - assets/templates/investigation/research_max_label_alt.png
+        research_resource_panel:
+          - assets/templates/investigation/research_resource_panel.png
+        research_power_crate:
+          - assets/templates/investigation/research_power_crate.png
+          - assets/templates/investigation/research_power_crate_alt.png
+        research_use_button:
+          - assets/templates/investigation/research_use_button.png
+        research_batch_button:
+          - assets/templates/investigation/research_batch_button.png
+        research_badge_store:
+          - assets/templates/investigation/research_badge_store.png
+        research_recommended_panel:
+          - assets/templates/investigation/research_recommended_panel.png
+        research_recommended_back:
+          - assets/templates/investigation/research_recommended_back.png
+        research_node_templates:
+          - assets/templates/investigation/AR/research_node_1.png
+          - assets/templates/investigation/AR/research_node_2.png
+          - assets/templates/investigation/AR/research_node_3.png
+          - assets/templates/investigation/AR/research_node_4.png
+          - assets/templates/investigation/AR/research_node_5.png
+          - assets/templates/investigation/AR/research_node_6.png
+          - assets/templates/investigation/AR/research_node_7.png
+          - assets/templates/investigation/AR/research_node_8.png
+          - assets/templates/investigation/AR/research_node_9.png
+        research_free_button:
+          - assets/templates/investigation/research_free_button.png
+      heal_troops:
+        healing_icon:
+          - assets/templates/healing_icon.png
+        healing_icon_handshake:
+          - assets/templates/healing_icon_handshake.png
+        healing_icon_troops:
+          - assets/templates/healing_icon_troops.png
+          - assets/templates/healing_icon_troops_alt.png
+          - assets/templates/healing_icon_troops_alt2.png
+        healing_button:
+          - assets/templates/healing_button.png
+      caravan:
+        caravan_icon:
+          - assets/templates/caravan/caravan_icon.png
+        caravan_start_button:
+          - assets/templates/caravan/caravan_start_button.png
+          - assets/templates/caravan/caravan_start_button_alt.png
+        caravan_warning:
+          - assets/templates/caravan/caravan_warning.png
+        caravan_warning_accept:
+          - assets/templates/caravan/caravan_warning_accept.png
+        caravan_combat_button:
+          - assets/templates/caravan/caravan_combat_button.png
+        caravan_combat_button2:
+          - assets/templates/caravan/caravan_combat_button2.png
+        caravan_continue:
+          - assets/templates/caravan/caravan_continue.png
+        caravan_battle_ready:
+          - assets/templates/caravan/caravan_battle_ready.png
+        caravan_field_red:
+          - assets/templates/caravan/caravan_field_red.png
+          - assets/templates/caravan/caravan_field_red_alt.png
+        caravan_field_blue:
+          - assets/templates/caravan/caravan_field_blue.png
+          - assets/templates/caravan/caravan_field_blue_alt.png
+        caravan_field_yellow:
+          - assets/templates/caravan/caravan_field_yellow.png
+          - assets/templates/caravan/caravan_field_yellow_alt.png
+        caravan_field_red_completed:
+          - assets/templates/caravan/caravan_field_completed.png
+        caravan_field_blue_completed:
+          - assets/templates/caravan/caravan_field_completed.png
+        caravan_field_yellow_completed:
+          - assets/templates/caravan/caravan_field_completed.png
+      gather_cycle:
+        search_icon:
+          - assets/templates/search_icon.png
+        search_button:
+          - assets/templates/search_button.png
+        resource_food_icon:
+          - assets/templates/resource_food_icon.png
+        resource_wood_icon:
+          - assets/templates/resource_wood_icon.png
+        level_increase_button:
+          - assets/templates/level_increase_button.png
+        level_decrease_button:
+          - assets/templates/level_decrease_button.png
+        level_indicator_1:
+          - assets/templates/level_indicator_1.png
+        level_indicator_2:
+          - assets/templates/level_indicator_2.png
+        level_indicator_3:
+          - assets/templates/level_indicator_3.png
+        level_indicator_4:
+          - assets/templates/level_indicator_4.png
+        level_indicator_5:
+          - assets/templates/level_indicator_5.png
+        level_indicator_6:
+          - assets/templates/level_indicator_6.png
+        level_indicator_7:
+          - assets/templates/level_indicator_7.png
+        level_indicator_8:
+          - assets/templates/level_indicator_8.png
+        gather_button:
+          - assets/templates/gather_button.png
+      rally_boomer:
+        boomer_icon:
+          - assets/templates/boomer/boomer_icon.png
+        boomer_team_up_button:
+          - assets/templates/boomer/boomer_team_up_button.png
+        boomer_rally_icon:
+          - assets/templates/boomer/boomer_rally_icon.png
+        boomer_auto_union_menu:
+          - assets/templates/boomer/boomer_auto_union_menu.png
+        boomer_auto_union_button:
+          - assets/templates/boomer/boomer_auto_union_button.png
+          - assets/templates/boomer/boomer_auto_union_button_alt.png
+          - assets/templates/boomer/boomer_auto_union_button_alt2.png
+        boomer_auto_union_activate:
+          - assets/templates/boomer/boomer_auto_union_activate.png
+        boomer_event_icon:
+          - assets/templates/boomer/boomer_event_icon.png
+          - assets/templates/boomer/boomer_event_icon_alt.png
+      daily_quests:
+        daily_quests_viviana_icon:
+          - assets/templates/daily_quests/viviana_icon.png
+        daily_quests_daily_tab_button:
+          - assets/templates/daily_quests/daily_tab_button.png
+        daily_quests_claim_all_button:
+          - assets/templates/daily_quests/claim_all_button.png
+      claim_quick_rewards:
+        katrina_combustible:
+          - assets/templates/katrina_combustible.png
+        combustible:
+          - assets/templates/combustible.png
+        amelia_blueprints:
+          - assets/templates/amelia_blueprints.png
+        comida:
+          - assets/templates/reward_comida.png
+          - assets/templates/reward_comida_alt.png
+        madera:
+          - assets/templates/reward_madera.png
+          - assets/templates/reward_madera_alt.png
+        alliance_help_button:
+          - assets/templates/alliance_help_button.png
+      claim_rss_exploracion:
+        rss_exploracion:
+          - assets/templates/rss_exploracion.png
+          - assets/templates/rss_exploracion_alt.png
+        rss_exploracion_claim:
+          - assets/templates/rss_exploracion_claim.png
+      arena:
+        arena_icon:
+          - assets/templates/arena/arena_icon.png
+        arena_challenge_button:
+          - assets/templates/arena/arena_challenge_button.png
+        arena_attack_button:
+          - assets/templates/arena/arena_attack_button.png
+        arena_combat_button:
+          - assets/templates/arena/arena_combat_button.png
+        arena_skip_button:
+          - assets/templates/arena/arena_skip_button.png
+      troop_state:
+        troop_state_marching:
+          - assets/templates/troops/troop_state_marching.png
+          - assets/templates/troops/troop_state_marching_alt.png
+        troop_state_stationed:
+          - assets/templates/troops/troop_state_stationed.png
+        troop_state_returning:
+          - assets/templates/troops/troop_state_returning.png
+        troop_state_gathering:
+          - assets/templates/troops/troop_state_gathering.png
+          - assets/templates/troops/troop_state_gathering_alt.png
+        troop_state_rally:
+          - assets/templates/troops/troop_state_rally.png
+        troop_state_combat:
+          - assets/templates/troops/troop_state_combat.png
+          - assets/templates/troops/troop_state_combat_alt.png
+          - assets/templates/troops/troop_state_combat_alt2.png
+          - assets/templates/troops/troop_state_combat_alt3.png
+          - assets/templates/troops/troop_state_combat_alt4.png
+          - assets/templates/troops/troop_state_combat_alt5.png
+          - assets/templates/troops/troop_state_combat_alt6.png
+          - assets/templates/troops/troop_state_combat_alt7.png
+          - assets/templates/troops/troop_state_combat_alt8.png
+          - assets/templates/troops/troop_state_combat_alt9.png
+          - assets/templates/troops/troop_state_combat_alt10.png
+          - assets/templates/troops/troop_state_combat_alt11.png
+          - assets/templates/troops/troop_state_combat_alt12.png
+          - assets/templates/troops/troop_state_combat_alt13.png
+    troop_state:
+      detection_threshold: 0.83    # optional, defaults to 0.85
+      debug_regions_enabled: true
+      slots:
+        a:
+          tap: [500, 490]
+          indicator_region:
+            - [0.479, 0.537]      # y start/end (top/bottom in 0–1) 465 520 
+            - [0.87, 1.0]          # x start/end (left/right in 0–1)
+          label: "A"
+        b:
+          tap: [500, 550]
+          indicator_region:
+            - [0.537, 0.594]  # 520 575
+            - [0.87, 1.0]
+        c:
+          tap: [500, 600]
+          indicator_region:
+            - [0.594, 0.646]  # 575 625
+            - [0.87, 1.0]
+      state_templates:
+        marching: ["troop_state_marching"]
+        stationed: ["troop_state_stationed"]
+        returning: ["troop_state_returning"]
+        gathering: ["troop_state_gathering"]
+        rally: ["troop_state_rally"]
+        combat: ["troop_state_combat"]
+task_defaults:
+  __common__:
+    overlay_dismiss_tap: [539, 0]
+  collect_mail:
+    delay: 3.0
+    tab_settle_delay: 3.0
+    overlay_timeout: 6.0
+    overlay_poll: 0.5
+    overlay_threshold: 0.85
+    overlay_delay: 0.3
+    overlay_use_brightness: true
+    overlay_dark_threshold: 0.35
+  collect_vip:
+    delay: 3.0
+    overlay_timeout: 6.0
+    overlay_poll: 0.5
+    overlay_threshold: 0.85
+    overlay_use_brightness: true
+    overlay_dark_threshold: 0.35
+  caravan:
+    icon_template: "caravan_icon"
+    icon_threshold: 0.82
+    tap_delay: 2.0
+    panel_delay: 3.0
+    start_button: null
+    level_select_delay: 2.0
+    start_delay: 2.0
+    warning_delay: 2.0
+    post_warning_start_delay: 2.0
+    hero_setup_delay: 2.0
+    hero_select_delay: 1.0
+    hero_dark_check_enabled: true
+    hero_dark_threshold: 0.32
+    hero_dark_sample_radius: 24
+    combat_delay: 2.0
+    skip_delay: 3.0
+    battlefield_switch_delay: 2.0
+    post_field_delay: 5.0
+    stage_transition_delay: 3.0
+    stage_count: 20
+    stage_retry_limit: 3
+    battlefield_switch_attempts: 3
+    battlefield_prev_level_button: "caravan_prev_level"
+    start_template: "caravan_start_button"
+    start_threshold: 0.82
+    start_timeout: 6.0
+    warning_template: "caravan_warning"
+    warning_threshold: 0.82
+    warning_timeout: 6.0
+    warning_accept_template: "caravan_warning_accept"
+    warning_accept_threshold: 0.82
+    skip_button: "caravan_skip_button"
+    pre_combat_template: "caravan_combat_button"
+    pre_combat_threshold: 0.82
+    pre_combat_timeout: 6.0
+    post_combat_template: "caravan_combat_button2"
+    post_combat_threshold: 0.82
+    post_combat_timeout: 6.0
+    continue_template: "caravan_continue"
+    continue_threshold: 0.82
+    continue_timeout: 5.0
+    battle_ready_template: "caravan_battle_ready"
+    battle_ready_threshold: 0.3
+    battle_ready_timeout: 6.0
+    battlefield_color_templates:
+      red: "caravan_field_red"
+      blue: "caravan_field_blue"
+      yellow: "caravan_field_yellow"
+    battlefield_color_threshold: 0.82
+    battlefield_color_timeout: 4.0
+    battlefield_color_poll: 0.5
+    battlefield_completed_templates:
+      red: "caravan_field_red_completed"
+      blue: "caravan_field_blue_completed"
+      yellow: "caravan_field_yellow_completed"
+    battlefield_completed_threshold: 0.85
+    world_button_template: "world_button"
+    world_button_threshold: 0.7
+    battlefields:
+      - name: "red"
+        color: "red"
+        switch_button: null
+      - name: "blue"
+        color: "blue"
+        switch_button: "caravan_next_battlefield"
+      - name: "yellow"
+        color: "yellow"
+        switch_button: "caravan_next_battlefield"
+    color_buttons:
+      red: "caravan_color_red"
+      blue: "caravan_color_blue"
+      yellow: "caravan_color_yellow"
+    hero_buttons:
+      - "caravan_hero_slot_1"
+      - "caravan_hero_slot_2"
+      - "caravan_hero_slot_3"
+      - "caravan_hero_slot_4"
+      - "caravan_hero_slot_5"
+  bounty_missions:
+    icon_template: "bounty_icon"
+    menu_template: "bounty_menu_header"
+    go_button_templates:
+      - "bounty_go_button"
+    quick_deploy_template: "bounty_quick_deploy"
+    send_button_templates:
+      - "bounty_send_button"
+      - "march_button"
+    claim_button_templates:
+      - "bounty_claim_button"
+    hero_busy_templates: []        # opcional; agrega "bounty_hero_busy" si capturas el popup
+    hero_busy_dismiss_button: "close_popup"
+    claim_overlay_dismiss_button: "close_popup"
+    mission_badge_templates: []    # opcional; usa "bounty_mission_badge" como respaldo visual
+    no_missions_templates: []      # opcional; ejemplo: "bounty_no_missions"
+    tap_delay: 3.0
+    icon_threshold: 0.82
+    menu_threshold: 0.82
+    go_button_threshold: 0.99
+    quick_deploy_threshold: 0.84
+    send_button_threshold: 0.84
+    hero_busy_threshold: 0.84
+    no_missions_threshold: 0.84
+    claim_button_threshold: 0.84
+    icon_timeout: 6.0
+    menu_timeout: 5.0
+    go_button_timeout: 8.0
+    quick_deploy_timeout: 4.0
+    send_button_timeout: 5.0
+    hero_busy_timeout: 3.0
+    claim_button_timeout: 2.5
+    mission_completion_timeout: 4.0
+    mission_completion_poll: 0.5
+    max_missions_per_run: 100
+    max_dispatch_fail_safe: 12    # corta la tarea si se envían demasiadas misiones seguidas (previene bucles por errores)
+    go_button_scan_limit: 5
+    go_retry_delay: 2.0
+    idle_wait_timeout: 30.0         # 0 = esperar indefinidamente a que vuelva una tropa
+    quick_deploy_delay: 1.5
+    send_delay: 1.0
+    post_send_delay: 4.0
+    back_delay: 1.0
+    daily_task_name: "bounty_missions"
+    daily_limit: 100
+    skip_daily_limit_check: false
+  radar_quests:
+    icon_templates: ["radar_icon"]
+    world_icon_templates: ["radar_world_icon"]
+    menu_templates: ["radar_menu_header"]
+    claim_button_templates: ["radar_claim_button"]
+    laura_button_templates: ["radar_laura_button"]
+    special_mission_templates: ["radar_special_mission_icon"]
+    special_go_button_templates: ["radar_special_go_button"]
+    help_mission_templates: ["radar_help_mission_icon"]
+    help_button_templates: ["radar_help_button"]
+    attack_button_templates: ["radar_attack_button"]
+    idle_troop_templates: ["idle_troop_sleep"]
+    march_button_templates: ["march_button"]
+    overlay_dismiss_button: "close_popup"
+    overlay_free_tap: [539, 0]
+    tap_delay: 1.5
+    icon_threshold: 0.82
+    world_icon_threshold: 0.82
+    menu_threshold: 0.82
+    claim_button_threshold: 0.88
+    laura_button_threshold: 0.85
+    overlay_threshold: 0.8
+    special_mission_threshold: 0.95
+    special_go_button_threshold: 0.85
+    help_mission_threshold: 0.9
+    help_button_threshold: 0.85
+    attack_button_threshold: 0.82
+    idle_troop_threshold: 0.82
+    march_button_threshold: 0.82
+    icon_timeout: 6.0
+    world_icon_timeout: 6.0
+    menu_timeout: 5.0
+    claim_button_timeout: 4.0
+    laura_button_timeout: 3.0
+    overlay_timeout: 3.0
+    special_go_button_timeout: 4.0
+    help_mission_timeout: 5.0
+    help_button_timeout: 4.0
+    attack_button_timeout: 5.0
+    idle_troop_timeout: 4.0
+    march_button_timeout: 4.0
+    post_claim_delay: 2.0
+    overlay_dismiss_delay: 0.5
+    laura_delay: 1.5
+    cycle_delay: 1.5
+    special_travel_delay: 3.0
+    help_travel_delay: 3.0
+    help_button_delay: 1.0
+    attack_panel_delay: 2.0
+    troop_select_delay: 1.0
+    post_attack_delay: 1.5
+    post_march_delay: 3.0
+    max_cycles: 12
+    daily_task_name: "radar_quests"
+    daily_limit: 1
+    skip_daily_limit_check: false
+  investigation:
+    icon_templates: ["research_icon"]
+    panel_templates: ["research_panel_header"]
+    complete_button_templates: ["research_complete_button"]
+    start_button_templates: ["research_start_button"]
+    alliance_button_templates: ["research_alliance_button"]
+    node_invest_templates: ["research_node_invest_button"]
+    help_button_templates: ["research_help_button"]
+    recommended_panel_templates: ["research_recommended_panel"]
+    recommended_back_templates: ["research_recommended_back"]
+    max_label_templates: ["research_max_label"]
+    resource_panel_templates: ["research_resource_panel"]
+    resource_target_templates: ["research_power_crate"]
+    resource_use_button_templates: ["research_use_button"]
+    resource_batch_button_templates: ["research_batch_button"]
+    badge_store_templates: ["research_badge_store"]
+    free_button_templates: ["research_free_button"]    # opcional; agrega "research_free_button" si tienes el template
+    timer_region:
+      - [183, 363]
+      - [341, 380]
+    overlay_dismiss_tap: [539, 0]
+    overlay_use_brightness: true
+    overlay_dark_threshold: 0.35
+    tap_delay: 1.5
+    panel_delay: 2.0
+    back_delay: 1.0
+    help_button_delay: 1.0
+    icon_threshold: 0.82
+    panel_threshold: 0.82
+    button_threshold: 0.85
+    recommended_panel_threshold: 0.82
+    recommended_back_threshold: 0.85
+    max_label_threshold: 0.8
+    badge_store_threshold: 0.9
+    icon_timeout: 6.0
+    panel_timeout: 5.0
+    button_timeout: 5.0
+    resource_wait_timeout: 6.0
+    default_max_region_offset:
+      - [-50, 0]
+      - [50, 70]
+    node_template_threshold: 0.9
+    node_template_max_results: 10
+    nodes:
+      - tap: [210, 360]
+        max_region:
+          - [165, 395]
+          - [250, 430]
+      - tap: [360, 360]
+        max_region:
+          - [315, 395]
+          - [400, 430]
+      - tap: [510, 360]
+        max_region:
+          - [465, 395]
+          - [550, 430]
+    node_templates: ["research_node_templates"] #[]     reemplaza esta lista con tus plantillas de nodos (ver README)
+  trucks:
+    icon_template: "truck_icon"
+    icon_threshold: 0.82
+    icon_timeout: 6.0
+    menu_template: "truck_send_menu"
+    menu_threshold: 0.82
+    menu_timeout: 6.0
+    empty_slot_template: "truck_empty_slot"
+    empty_slot_threshold: 0.82
+    reward_template: "truck_reward"
+    reward_overlay_template: "truck_menu_reward"
+    reward_threshold: 0.82
+    reward_timeout: 6.0
+    rarity_templates:
+      - "truck_orange"
+      - "truck_purple"
+    rarity_threshold: 0.85
+    rarity_template_thresholds:
+      truck_orange: 0.86
+      truck_purple: 0.93
+    dice_template: "truck_dice"
+    dice_threshold: 0.82
+    send_button_template: "truck_send_button"
+    send_button_threshold: 0.82
+    warning_template: "truck_warning_window"
+    warning_cancel_template: "truck_warning_cancel"
+    warning_threshold: 0.82
+    warning_timeout: 3.0
+    warning_delay: 1.0
+    rarity_check_timeout: 2.5
+    rarity_check_poll: 0.4
+    tap_delay: 1.0
+    menu_delay: 2.0
+    slot_open_delay: 1.5
+    reroll_delay: 1.0
+    send_delay: 2.0
+    reward_delay: 1.0
+    back_delay: 1.0
+    max_rerolls: 5
+    max_concurrent_slots: 3
+    daily_limit: 4
+    sent_counter_templates:
+      0: "truck_sent_counter_0"
+      1: "truck_sent_counter_1"
+      2: "truck_sent_counter_2"
+      3: "truck_sent_counter_3"
+      4: "truck_sent_counter_4"
+    sent_counter_threshold: 0.98
+    sent_counter_timeout: 3.0
+    sent_counter_poll: 0.5
+  heal_troops:
+    world_button_template: "world_button"
+    world_button_threshold: 0.7
+    world_button_timeout: 6.0
+    world_transition_delay: 3.0
+    sede_button_template: "sede_button"
+    sede_button_threshold: 0.75
+    healing_icon_template: "healing_icon"
+    icon_threshold: 0.82
+    icon_timeout: 6.0
+    panel_delay: 2.0
+    troops_icon_template: "healing_icon_troops"
+    collect_timeout: 6.0
+    collect_delay: 2.0
+    max_collect_cycles: 2
+    handshake_icon_template: "healing_icon_handshake"
+    handshake_threshold: 0.82
+    handshake_timeout: 6.0
+    handshake_delay: 1.5
+    healing_button_template: "healing_button"
+    healing_button_threshold: 0.82
+    healing_button_timeout: 5.0
+    heal_action_delay: 2.0
+    post_return_delay: 2.0
+  gather_cycle:
+    idle_template: "idle_troop_sleep"
+    empty_troop_templates: "troop_empty"      # opcional; agrega "troop_empty" cuando tengas el template
+    empty_troop_threshold: 0.82
+    search_icon_template: "search_icon"
+    resource_templates:
+      wood: ["resource_wood_icon"]
+      food: ["resource_food_icon"]
+    search_button_template: "search_button"
+    level_increase_template: "level_increase_button"
+    level_decrease_template: "level_decrease_button"
+    level_indicator_templates:
+      1: ["level_indicator_1"]
+      2: ["level_indicator_2"]
+      3: ["level_indicator_3"]
+      4: ["level_indicator_4"]
+      5: ["level_indicator_5"]
+      6: ["level_indicator_6"]
+    gather_button_template: "gather_button"
+    march_button_template: "march_button"
+    sede_button_template: "sede_button"
+    world_button_template: "world_button"
+    max_troops: 2
+    resource_priority: ["food", "wood"]
+    preferred_idle_slots:
+      - "b"
+      - "c"
+    max_level: 6
+    min_level: 3
+    idle_template_threshold: 0.82
+    idle_max_matches: 3
+    drag_duration_ms: 800
+    world_transition_delay: 3.0
+    search_timeout: 8.0
+    search_retry_delay: 3.0
+    gather_timeout: 7.0
+    pre_troop_delay: 3.0
+    post_march_delay: 3.0
+    idle_clear_timeout: 10.0
+    idle_clear_poll: 1.0
+    idle_tap_offset: [0, 0]
+    map_result_tap: [270, 480]
+    drag_start: [460, 630]
+    drag_end: [80, 630]
+    template_threshold: 0.8
+    level_indicator_threshold: 0.9
+    level_detection_order: "desc"
+    world_button_threshold: 0.7
+    sede_button_threshold: 0.75
+    search_panel_settle_delay: 3.0
+    post_drag_delay: 3.0
+    resource_select_delay: 3.0
+    level_adjust_delay: 0.5
+    focus_result_delay: 3.0
+    troop_select_delay: 3.0
+    return_home_delay: 3.0
+    idle_detection_delay: 3.0
+    idle_detection_poll: 0.5
+    level_overrides:
+      Farm-07:
+        min_level: 4
+        max_level: 4
+      Farm-08:
+        min_level: 4
+        max_level: 4
+      Farm-09:
+        min_level: 4
+        max_level: 4
+      Farm-10:
+        min_level: 4
+        max_level: 4
+      Farm-11:
+        min_level: 4
+        max_level: 4
+      Farm-12:
+        min_level: 4
+        max_level: 4
+  attack_furylord:
+    idle_template: "idle_troop_sleep"
+    empty_troop_templates: "troop_empty"      # opcional; usa "troop_empty" cuando se capture
+    empty_troop_threshold: 0.82
+    event_center_template: "event_center_button"
+    fury_icon_template: "furylord_icon"
+    fury_completion_template: "furylord_completed"
+    fury_go_button_template: "furylord_go_button"
+    fury_attack_button_template: "furylord_attack_button"
+    fury_warning_template: "furylord_warning"
+    fury_warning_cancel_template: "furylord_warning_cancel"
+    fury_record_template: "furylord_record"
+    fury_rewards_template: "furylord_rewards"
+    march_button_template: "march_button"
+    sede_button_template: "sede_button"
+    world_button_template: "world_button"
+    max_attacks: 4
+    idle_template_threshold: 0.82
+    idle_max_matches: 3
+    idle_detection_delay: 5.0
+    idle_detection_poll: 1.0
+    idle_tap_offset: [0, 0]
+    drag_duration_ms: 5000
+    drag_settle_delay: 3.0
+    event_transition_delay: 3.0
+    attack_timeout: 8.0
+    go_timeout: 8.0
+    pre_troop_delay: 3.0
+    troop_select_delay: 3.0
+    post_march_delay: 3.0
+    refocus_delay: 3.0
+    idle_retry_delay: 30.0
+    template_threshold: 0.8
+    attack_button_threshold: 0.78
+    go_button_threshold: 0.78
+    world_button_threshold: 0.7
+    sede_button_threshold: 0.75
+    event_drag_start: [350, 915]
+    event_drag_end: [105, 915]
+    target_focus_tap: [270, 440]
+    completion_template: "furylord_completed"
+    warning_template: "furylord_warning"
+    record_template: "furylord_record"
+    warning_cancel_template: "furylord_warning_cancel"
+    attack_refocus_attempts: 3
+    availability_hours: [23, 5, 11, 17]
+    availability_window_hours: 3
+    skip_when_unavailable: true
+    reward_template_threshold: 0.82
+    reward_template_timeout: 6.0
+    reward_overlay_tap: [539, 0]
+    reward_overlay_delay: 2.0
+  rally_boomer:
+    search_icon_template: "search_icon"
+    boomer_icon_template: "boomer_icon"
+    team_up_button_template: "boomer_team_up_button"
+    rally_icon_templates:
+      - "boomer_rally_icon"
+    auto_union_menu_template: "boomer_auto_union_menu"
+    auto_union_button_template: "boomer_auto_union_button"
+    auto_union_activate_template: "boomer_auto_union_activate"
+    event_center_template: "event_center_button"
+    event_boomer_template: "boomer_event_icon"
+    search_button_template: "search_button"
+    level_increase_template: "level_increase_button"
+    level_decrease_template: "level_decrease_button"
+    level_indicator_templates:
+      1: ["level_indicator_1"]
+      2: ["level_indicator_2"]
+      3: ["level_indicator_3"]
+      4: ["level_indicator_4"]
+      5: ["level_indicator_5"]
+      6: ["level_indicator_6"]
+      7: ["level_indicator_7"]
+      8: ["level_indicator_8"]
+    world_button_template: "world_button"
+    sede_button_template: "sede_button"
+    march_button_template: "march_button"
+    map_result_tap: [270, 480]
+    drag_start: [460, 630]
+    drag_end: [80, 630]
+    reverse_drag_start: [80, 630]
+    reverse_drag_end: [460, 630]
+    event_drag_start: [450, 915]
+    event_drag_end: [105, 915]
+    drag_duration_ms: 800
+    search_panel_settle_delay: 3.0
+    post_drag_delay: 3.0
+    focus_result_delay: 3.0
+    world_transition_delay: 3.0
+    rally_grace_period: 45.0
+    rally_timeout: 180.0
+    rally_poll_interval: 5.0
+    target_level: 6
+    level_overrides:
+      Farm-07: 4
+      Farm-08: 4
+      Farm-09: 4
+      Farm-10: 4
+      Farm-11: 4
+      Farm-12: 4
+    team_button_timeout: 6.0
+    rally_icon_timeout: 8.0
+    auto_union_timeout: 8.0
+    auto_union_task_name: "boomer_auto_union"
+    auto_union_refresh_hours: 12.0
+    preferred_idle_slots: ["b", "c", "a"]
+    max_parallel_rallies: 3
+    empty_troop_templates: "troop_empty"
+    empty_troop_threshold: 0.82
+    empty_troop_wait_timeout: 240.0
+    dispatch_confirm_timeout: 15.0
+    search_button_threshold: 0.82
+    template_threshold: 0.82
+    level_indicator_threshold: 0.97
+    level_detection_delay: 1.0
+    world_button_threshold: 0.7
+    sede_button_threshold: 0.75
+    level_detection_order: "desc"
+    map_icon_threshold: 0.82
+    team_button_threshold: 0.82
+    rally_icon_threshold: 0.82
+    auto_union_threshold: 0.82
+    daily_task_name: "rally_boomer"
+    daily_limit: 5
+    skip_daily_limit_check: false
+  claim_quick_rewards:
+    reward_templates:
+      - "katrina_combustible"
+      - "combustible"
+      - "amelia_blueprints"
+      - "comida"
+      - "madera"
+      - "alliance_help_button"
+    template_threshold: 0.8
+    tap_delay: 2.0
+    max_claims: 0
+    post_claim_delay: 2.0
+    overlay_templates:
+      - "amelia_blueprints"
+    overlay_dismiss_delay: 2.0
+  claim_rss_exploracion:
+    exploration_button_template: "rss_exploracion"
+    claim_button_template: "rss_exploracion_claim"
+    template_threshold: 0.8
+    tap_delay: 3.0
+    panel_delay: 3.0
+    claim_timeout: 8.0
+    post_claim_delay: 2.0
+    dismiss_delay: 2.0
+    dismiss_tap: [539, 0]
+  daily_arena:
+    icon_templates:
+      - "arena_icon"
+    challenge_templates:
+      - "arena_challenge_button"
+    attack_templates:
+      - "arena_attack_button"
+    combat_templates:
+      - "arena_combat_button"
+    skip_templates:
+      - "arena_skip_button"
+    template_threshold: 0.83
+    tap_delay: 1.0
+    menu_delay: 2.0
+    mode_delay: 1.5
+    challenge_delay: 1.0
+    fight_transition_delay: 3.5
+    post_combat_delay: 3.0
+    result_overlay_delay: 2.0
+    overlay_dismiss_delay: 1.0
+    attack_timeout: 6.0
+    combat_timeout: 6.0
+    skip_timeout: 4.0
+    menu_return_timeout: 8.0
+    back_delay: 1.0
+    attack_scan_limit: 5
+  claim_daily_quests:
+    viviana_templates:
+      - "daily_quests_viviana_icon"
+    daily_tab_templates:
+      - "daily_quests_daily_tab_button"
+    claim_all_templates:
+      - "daily_quests_claim_all_button"
+    template_threshold: 0.83
+    tap_delay: 1.0
+    menu_delay: 2.5
+    tab_delay: 1.5
+    icon_timeout: 6.0
+    tab_timeout: 5.0
+    claim_timeout: 6.0
+    post_claim_delay: 1.5
+    overlay_dismiss_delay: 1.0
+    overlay_timeout: 6.0
+    overlay_poll_interval: 0.5
+    overlay_use_brightness: true
+    overlay_brightness_threshold: 0.35
+    menu_return_timeout: 6.0
+    menu_return_poll_interval: 0.5
+    back_delay: 1.0
+
+instances:
+  - name: Farm-01
+    instance: "Pie64_3"
+    device_port: 5585
+    routine: daily-basic
+  - name: Farm-02
+    instance: "Pie64_4"
+    device_port: 5595
+    routine: daily-basic
+  - name: Farm-03
+    instance: "Pie64_7"
+    device_port: 5625
+    routine: daily-basic
+  - name: Farm-04
+    instance: "Pie64_8"
+    device_port: 5635
+    routine: daily-basic
+  - name: Farm-05
+    instance: "Pie64_9"
+    device_port: 5645
+    routine: daily-basic
+  - name: Farm-06
+    instance: "Pie64_10"
+    device_port: 5655
+    routine: daily-basic
+  - name: Farm-07
+    instance: "Pie64_12"
+    device_port: 5675
+    routine: daily-basic-no-caravan
+  - name: Farm-08
+    instance: "Pie64_13"
+    device_port: 5685
+    routine: daily-basic-no-caravan
+  - name: Farm-09
+    instance: "Pie64_14"
+    device_port: 5695
+    routine: daily-basic-no-caravan
+  - name: Farm-10
+    instance: "Pie64_15"
+    device_port: 5705
+    routine: daily-basic-no-caravan
+  - name: Farm-11
+    instance: "Pie64_16"
+    device_port: 5715
+    routine: daily-basic-no-caravan
+  - name: Farm-12
+    instance: "Pie64_17"
+    device_port: 5725
+    routine: daily-basic-no-caravan
+
+routines:
+  daily-basic:
+    tasks:
+      - task: collect_mail
+      - task: collect_vip
+      - task: investigation
+      - task: heal_troops
+      - task: attack_furylord
+      - task: claim_rss_exploracion
+      - task: claim_quick_rewards
+      - task: trucks
+      - task: bounty_missions
+      - task: radar_quests
+      - task: caravan
+      - task: rally_boomer
+      - task: gather_cycle
+      - task: daily_arena
+      - task: claim_daily_quests
+
+
+
+  daily-basic-no-caravan:
+    tasks:
+      - task: collect_mail
+      - task: collect_vip
+      - task: investigation
+      - task: heal_troops
+      - task: attack_furylord
+      - task: claim_rss_exploracion
+      - task: claim_quick_rewards
+      - task: trucks
+      - task: bounty_missions
+      - task: radar_quests
+      - task: rally_boomer
+      - task: gather_cycle
+      - task: daily_arena
+      - task: claim_daily_quests
