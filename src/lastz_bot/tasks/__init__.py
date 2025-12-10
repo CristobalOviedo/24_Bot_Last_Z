@@ -19,6 +19,7 @@ from .bounty_missions import BountyMissionsTask
 from .radar_quests import RadarQuestsTask
 from .rally_boomer import RallyBoomerTask
 from .investigation import InvestigationTask
+from .construction import ConstructionTask
 
 
 def build_registry() -> TaskRegistry:
@@ -42,4 +43,5 @@ def build_registry() -> TaskRegistry:
     registry.register(DailyArenaTask())
     registry.register(ClaimDailyQuestsTask())
     registry.register(InvestigationTask())
+    registry.register(ConstructionTask())
     return registry

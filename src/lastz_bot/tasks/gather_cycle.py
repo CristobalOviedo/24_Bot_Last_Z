@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Sequence, Tuple
 
 import cv2
+import pytesseract
 
 from .base import TaskContext
+from ..daily_tracker import GATHER_SLOT_TASK_PREFIX
+from ..ocr import read_timer_from_region
 from ..troop_state import (
     TroopActivity,
     TroopSlotStatus,
@@ -24,6 +28,23 @@ from ..troop_state import (
 
 
 Coord = Tuple[int, int]
+TimerRegion = Tuple[Coord, Coord]
+
+GATHER_DURATION_REGION: TimerRegion = ((170, 625), (230, 650))
+GATHER_TRAVEL_REGION: TimerRegion = ((260, 655), (320, 675))
+GATHER_OCR_MAX_ATTEMPTS = 3
+GATHER_OCR_RETRY_DELAY = 0.7
+
+
+@dataclass
+class GatherTimerEstimate:
+    gather_duration: timedelta
+    travel_duration: timedelta
+    captured_at: datetime
+
+    @property
+    def ready_at(self) -> datetime:
+        return self.captured_at + self.gather_duration + (self.travel_duration * 2)
 
 
 @dataclass
@@ -80,6 +101,7 @@ class GatherConfig:
     world_button_threshold: float
     sede_button_threshold: float
     level_detection_order: str
+    balanced_resource_allocation: bool
 
     @staticmethod
     def from_params(params: Dict[str, object]) -> "GatherConfig":
@@ -202,6 +224,9 @@ class GatherConfig:
                 params.get("sede_button_threshold", params.get("template_threshold", 0.85))
             ),
             level_detection_order=detection_order,
+            balanced_resource_allocation=bool(
+                params.get("balanced_resource_allocation", False)
+            ),
         )
 
 
@@ -212,6 +237,7 @@ class GatherCycleTask:
     def __init__(self) -> None:
         self._missing_templates: set[str] = set()
         self._missing_buttons: set[str] = set()
+        self._resource_dispatches: Dict[str, int] = {}
 
     def _await_troop_state_sample(
         self,
@@ -237,6 +263,7 @@ class GatherCycleTask:
         self._apply_level_override(ctx, params)
         config = GatherConfig.from_params(params)
         self._missing_templates.clear()
+        self._resource_dispatches.clear()
         manual_dispatches = 0
         while True:
             if manual_dispatches >= config.max_troops:
@@ -270,13 +297,33 @@ class GatherCycleTask:
                 f"Tropas en descanso detectadas: {len(idle_slots)} (envío #{manual_dispatches + 1})"
             )
             selected_idle = idle_slots[0]
-            success = self._dispatch_single(ctx, config, selected_idle)
+            resource_sequence = self._resource_rotation(config)
+            success, dispatched_resource = self._dispatch_single(
+                ctx,
+                config,
+                selected_idle,
+                resource_sequence,
+            )
             if not success:
                 ctx.console.log("No se pudo completar el envío actual; deteniendo gather_cycle")
                 break
+            if dispatched_resource:
+                self._resource_dispatches[dispatched_resource] = (
+                    self._resource_dispatches.get(dispatched_resource, 0) + 1
+                )
             manual_dispatches += 1
 
         self._return_home(ctx, config)
+
+    def _resource_rotation(self, config: GatherConfig) -> List[str]:
+        if not config.resource_priority:
+            return []
+        if not config.balanced_resource_allocation:
+            return list(config.resource_priority)
+        indexed = list(enumerate(config.resource_priority))
+        stats = self._resource_dispatches
+        indexed.sort(key=lambda item: (stats.get(item[1], 0), item[0]))
+        return [name for _, name in indexed]
 
     # --- flujo principal -------------------------------------------------
     def _dispatch_single(
@@ -284,28 +331,29 @@ class GatherCycleTask:
         ctx: TaskContext,
         config: GatherConfig,
         idle_slot: TroopSlotStatus,
-    ) -> bool:
+        resource_sequence: Sequence[str],
+    ) -> tuple[bool, str | None]:
         """Realiza un envío completo: busca recurso, enfoca, inicia y asigna tropa."""
         if not self._open_search_panel(ctx, config):
-            return False
-        if not config.resource_priority:
+            return False, None
+        if not resource_sequence:
             ctx.console.log("[warning] No hay recursos configurados para gather_cycle")
-            return False
+            return False, None
 
-        primary_resource = config.resource_priority[0]
+        primary_resource = resource_sequence[0]
         if not self._select_resource(ctx, config, primary_resource):
             ctx.console.log(
                 "[warning] No se pudo seleccionar ningún recurso tras abrir la lupa"
             )
-            return False
+            return False, None
         current_resource = primary_resource
         self._set_level_to_max(ctx, config)
 
         level = config.max_level
         found_site = False
         while level >= config.min_level:
-            ctx.console.log(f"Intentando nivel {level} con recursos {config.resource_priority}")
-            for resource in config.resource_priority:
+            ctx.console.log(f"Intentando nivel {level} con recursos {list(resource_sequence)}")
+            for resource in resource_sequence:
                 if resource != current_resource:
                     if not self._select_resource(ctx, config, resource):
                         continue
@@ -326,15 +374,15 @@ class GatherCycleTask:
 
         if not found_site:
             ctx.console.log("No se encontró punto de recolección en los niveles configurados")
-            return False
+            return False, None
 
         if not self._focus_search_result(ctx, config):
-            return False
+            return False, None
         if not self._start_gather(ctx, config):
-            return False
+            return False, None
         if not self._assign_troop(ctx, config, idle_slot):
-            return False
-        return True
+            return False, None
+        return True, current_resource
 
     def _apply_level_override(
         self, ctx: TaskContext, params: Dict[str, object]
@@ -629,6 +677,7 @@ class GatherCycleTask:
         tap_point = self._apply_idle_offset(target_slot.tap, config)
         ctx.device.tap(tap_point, label="select-idle-troop")
         self._await_troop_state_sample(ctx, config, minimum=config.troop_select_delay)
+        gather_timer = self._capture_gather_timer(ctx)
         monitored_slot = resolve_slot_for_tap(ctx, tap_point, fallback=target_slot) or target_slot
         if monitored_slot.slot_id != target_slot.slot_id:
             prev_label = (target_slot.label or target_slot.slot_id or "?").upper()
@@ -654,6 +703,7 @@ class GatherCycleTask:
         if not self._confirm_slot_departure(ctx, config, monitored_slot):
             self._report_departure_issue(ctx, config, monitored_slot, task="gather_cycle")
             return False
+        self._register_gather_timer(ctx, monitored_slot, gather_timer)
         return True
 
     def _return_home(self, ctx: TaskContext, config: GatherConfig) -> None:
@@ -689,6 +739,7 @@ class GatherCycleTask:
                 )
             else:
                 slots = detect_idle_slots(ctx)
+            self._mark_idle_gather_slots_available(ctx, slots)
             filtered = self._filter_preferred_idle_slots(slots, config)
             if (
                 config.preferred_idle_slots
@@ -889,6 +940,194 @@ class GatherCycleTask:
         ctx.console.log(
             f"Seleccionando tropa {label} (estado actual: {describe_activity(slot.state)})"
         )
+
+    def _mark_idle_gather_slots_available(
+        self,
+        ctx: TaskContext,
+        slots: List[TroopSlotStatus],
+    ) -> None:
+        if not ctx.daily_tracker or not slots:
+            return
+        tracker = ctx.daily_tracker
+        farm_name = ctx.farm.name
+        for slot in slots:
+            task_name = self._gather_task_name(slot)
+            if not task_name:
+                continue
+            ready_value = tracker.get_metadata(farm_name, task_name, "next_ready_at")
+            if ready_value is None:
+                continue
+            tracker.set_count(farm_name, task_name, 1)
+            tracker.set_metadata(farm_name, task_name, "next_ready_at", None)
+            tracker.set_metadata(
+                farm_name,
+                task_name,
+                "troop_label",
+                self._slot_display_name(slot),
+            )
+
+    def _register_gather_timer(
+        self,
+        ctx: TaskContext,
+        slot: TroopSlotStatus,
+        timer: GatherTimerEstimate | None,
+    ) -> None:
+        if not timer or not ctx.daily_tracker:
+            return
+        task_name = self._gather_task_name(slot)
+        if not task_name:
+            return
+        tracker = ctx.daily_tracker
+        farm_name = ctx.farm.name
+        tracker.set_count(farm_name, task_name, 0)
+        tracker.set_metadata(farm_name, task_name, "next_ready_at", timer.ready_at.isoformat())
+        tracker.set_metadata(
+            farm_name,
+            task_name,
+            "troop_label",
+            self._slot_display_name(slot),
+        )
+        tracker.set_metadata(
+            farm_name,
+            task_name,
+            "gather_duration_seconds",
+            int(timer.gather_duration.total_seconds()),
+        )
+        tracker.set_metadata(
+            farm_name,
+            task_name,
+            "travel_duration_seconds",
+            int(timer.travel_duration.total_seconds()),
+        )
+        tracker.set_metadata(
+            farm_name,
+            task_name,
+            "captured_at",
+            timer.captured_at.isoformat(),
+        )
+
+    def _slot_display_name(self, slot: TroopSlotStatus | None) -> str:
+        if not slot:
+            return "?"
+        return (slot.label or slot.slot_id or "?").upper()
+
+    def _gather_task_name(self, slot: TroopSlotStatus | None) -> str | None:
+        if not slot:
+            return None
+        slot_key = (slot.label or slot.slot_id or "").strip().lower()
+        if not slot_key:
+            return None
+        if slot_key.startswith(GATHER_SLOT_TASK_PREFIX):
+            normalized = slot_key[len(GATHER_SLOT_TASK_PREFIX) :]
+        else:
+            normalized = slot_key
+        if not normalized:
+            return None
+        return f"{GATHER_SLOT_TASK_PREFIX}{normalized}"
+
+    def _capture_gather_timer(self, ctx: TaskContext) -> GatherTimerEstimate | None:
+        if not ctx.vision:
+            return None
+        attempts = 0
+        while attempts < GATHER_OCR_MAX_ATTEMPTS:
+            attempts += 1
+            screenshot = ctx.vision.capture()
+            if screenshot is None:
+                return None
+            try:
+                gather_duration = read_timer_from_region(screenshot, GATHER_DURATION_REGION)
+                travel_duration = read_timer_from_region(screenshot, GATHER_TRAVEL_REGION)
+            except pytesseract.TesseractNotFoundError:
+                failure_path = self._record_gather_timer_failure_debug(
+                    ctx,
+                    screenshot,
+                    reason="tesseract-missing",
+                    failed_region=None,
+                )
+                if failure_path:
+                    ctx.console.log(f"[debug] Captura de gather guardada en {failure_path}")
+                ctx.console.log(
+                    "[error] pytesseract no encontró 'tesseract.exe'; configura TESSERACT_CMD para leer timers de gather"
+                )
+                return None
+            if gather_duration and travel_duration:
+                return GatherTimerEstimate(
+                    gather_duration=gather_duration,
+                    travel_duration=travel_duration,
+                    captured_at=datetime.now(),
+                )
+            capture_paths: List[Path] = []
+            if not gather_duration:
+                gather_path = self._record_gather_timer_failure_debug(
+                    ctx,
+                    screenshot,
+                    reason=f"gather-missing-attempt-{attempts}",
+                    failed_region=GATHER_DURATION_REGION,
+                )
+                if gather_path:
+                    capture_paths.append(gather_path)
+            if not travel_duration:
+                travel_path = self._record_gather_timer_failure_debug(
+                    ctx,
+                    screenshot,
+                    reason=f"travel-missing-attempt-{attempts}",
+                    failed_region=GATHER_TRAVEL_REGION,
+                )
+                if travel_path:
+                    capture_paths.append(travel_path)
+            if capture_paths:
+                ctx.console.log(
+                    f"[debug] Capturas de gather guardadas en {', '.join(str(path) for path in capture_paths)}"
+                )
+            ctx.console.log(
+                f"[debug] OCR de gather incompleto (intento {attempts}/{GATHER_OCR_MAX_ATTEMPTS}); gather={gather_duration} travel={travel_duration}"
+            )
+            if attempts < GATHER_OCR_MAX_ATTEMPTS and ctx.device:
+                ctx.device.sleep(GATHER_OCR_RETRY_DELAY)
+        return None
+
+    def _record_gather_timer_failure_debug(
+        self,
+        ctx: TaskContext,
+        screenshot,
+        *,
+        reason: str,
+        failed_region: TimerRegion | None,
+    ) -> Path | None:
+        if screenshot is None:
+            return None
+        try:
+            reason_slug = "".join(ch if ch.isalnum() else "-" for ch in reason.lower()).strip("-") or "unknown"
+            frame_label = f"gather-timer-failure-{reason_slug}"
+            if ctx.vision:
+                ctx.vision._record_debug_frame(screenshot.copy(), frame_label)
+            farm_name = ctx.farm.name if ctx.farm else "unknown"
+            live_dir = Path("debug_reports") / "live" / farm_name
+            live_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%H%M%S_%f")
+            base_name = f"{timestamp}_{reason_slug}"
+            full_path = live_dir / f"{base_name}.png"
+            cv2.imwrite(str(full_path), screenshot)
+
+            if failed_region:
+                (x1, y1), (x2, y2) = failed_region
+                width = screenshot.shape[1]
+                height = screenshot.shape[0]
+                x_start, x_end = sorted((max(0, min(x1, width)), max(0, min(x2, width))))
+                y_start, y_end = sorted((max(0, min(y1, height)), max(0, min(y2, height))))
+                if x_end > x_start and y_end > y_start:
+                    crop = screenshot[y_start:y_end, x_start:x_end]
+                    if crop.size:
+                        crop_path = live_dir / f"{base_name}_crop.png"
+                        cv2.imwrite(str(crop_path), crop)
+                        if ctx.vision:
+                            ctx.vision._record_debug_frame(
+                                crop.copy(),
+                                f"{frame_label}-crop",
+                            )
+            return full_path
+        except Exception:
+            return None
 
     # --- utilidades ------------------------------------------------------
     def _detect_current_level(

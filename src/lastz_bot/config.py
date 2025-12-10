@@ -189,6 +189,22 @@ class InstanceConfig(BaseModel):
     device_port: int
     routine: str
     layout: str | None = None
+    alliance_help_limit: int = 0
+    alliance_help_minutes: float = 0.0
+    free_research_minutes: float = 0.0
+    free_construction_minutes: float = 0.0
+    construction_enabled: bool = False
+
+    @model_validator(mode="after")
+    def _validate_progress_modifiers(self) -> "InstanceConfig":
+        self.alliance_help_limit = max(0, int(self.alliance_help_limit or 0))
+        self.alliance_help_minutes = max(0.0, float(self.alliance_help_minutes or 0.0))
+        self.free_research_minutes = max(0.0, float(self.free_research_minutes or 0.0))
+        self.free_construction_minutes = max(
+            0.0, float(self.free_construction_minutes or 0.0)
+        )
+        self.construction_enabled = bool(self.construction_enabled)
+        return self
 
 
 class ADBConfig(BaseModel):

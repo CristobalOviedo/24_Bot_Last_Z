@@ -1,0 +1,2 @@
+[console_scripts]
+lastz-bot = lastz_bot.cli:main

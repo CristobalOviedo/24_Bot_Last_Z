@@ -258,6 +258,12 @@ class FuryLordTask:
         config = FuryLordConfig.from_params(params)
         self._missing_templates.clear()
 
+        if self._is_weekend_maintenance_window():
+            ctx.console.log(
+                "[info] Fury Lord deshabilitado entre sábado 23:00 y domingo 23:00; se omite la tarea"
+            )
+            return
+
         if self._has_already_claimed(ctx):
             ctx.console.log(
                 "[info] Fury Lord ya reclamado hoy; se omite la tarea"
@@ -351,6 +357,19 @@ class FuryLordTask:
             timeout=5.0,
             threshold=config.world_button_threshold,
         )
+
+    def _is_weekend_maintenance_window(self) -> bool:
+        """Retorna True entre el sábado 23:00 y el domingo 23:00 (hora local)."""
+
+        now = datetime.now()
+        weekday = now.weekday()
+        if weekday == 5:
+            # Saturday: skip only after 23:00
+            return now.hour >= 23
+        if weekday == 6:
+            # Sunday: skip until 23:00
+            return True if now.hour < 23 else False
+        return False
 
     def _open_event_center(
         self,

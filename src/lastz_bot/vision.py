@@ -205,6 +205,46 @@ class VisionHelper:
                 break
         return matches
 
+    def best_template_score(
+        self,
+        template_paths: Sequence[Path],
+        image: Optional[np.ndarray] = None,
+    ) -> Optional[Tuple[Path, float]]:
+        """Calcula el puntaje máximo de coincidencia entre varios templates.
+
+        Args:
+            template_paths (Sequence[Path]): Plantillas a evaluar.
+            image (Optional[np.ndarray], optional): Captura BGR reutilizable.
+
+        Returns:
+            Optional[Tuple[Path, float]]: Template con mayor score y su valor.
+        """
+
+        paths = list(template_paths)
+        if not paths:
+            return None
+        screenshot = image if image is not None else self.capture()
+        if screenshot is None:
+            return None
+        best_path: Optional[Path] = None
+        best_score = float("-inf")
+        for template_path in paths:
+            if not template_path.exists():
+                self.console.log(f"[warning] Template no encontrado: {template_path}")
+                continue
+            template = cv2.imread(str(template_path), cv2.IMREAD_COLOR)
+            if template is None:
+                self.console.log(f"[warning] No se pudo leer template {template_path}")
+                continue
+            result = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            if max_val > best_score:
+                best_score = float(max_val)
+                best_path = template_path
+        if best_path is None:
+            return None
+        return best_path, best_score
+
     @staticmethod
     def _consume_matches(
         result_map: np.ndarray,

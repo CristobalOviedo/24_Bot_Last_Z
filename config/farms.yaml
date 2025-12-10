@@ -35,6 +35,10 @@ daily_tracking:
     claim_daily_quests: 1
     daily_arena: 1
     investigation: 1
+    gather_slot_a: 1
+    gather_slot_b: 1
+    gather_slot_c: 1
+    construction: 1
 
 default_layout: "540p"
 tesseract_cmd: "C:/Program Files/Tesseract-OCR/tesseract.exe"
@@ -69,6 +73,7 @@ layouts:
         map_gather: [900, 640]
       caravan:
         caravan_prev_level: [185, 555]
+        caravan_prev_level_alt: [100, 555]
         caravan_color_red: [200, 850]
         caravan_color_blue: [335, 850]
         caravan_color_yellow: [470, 850]
@@ -89,6 +94,8 @@ layouts:
           - assets/templates/popup_close_alt2.png
           - assets/templates/popup_close_alt3.png
           - assets/templates/popup_close_alt4.png
+        game_loading_screen:
+          - assets/templates/game_loading_screen.png
         level_up_overlay:
           - assets/templates/level_up_overlay.png
         back_button_icon:
@@ -217,6 +224,33 @@ layouts:
           - assets/templates/radar_quests/radar_help_mission_icon_alt3.png
         radar_help_button:
           - assets/templates/radar_quests/radar_help_button.png
+      construction:
+        construction_icon:
+          - assets/templates/construction/construction_icon.png
+        construction_hq_panel:
+          - assets/templates/construction/construction_hq_panel.png
+        construction_upgrade_button:
+          - assets/templates/construction/construction_upgrade_button.png
+        construction_upgrade_button_disabled:
+          - assets/templates/construction/construction_upgrade_button_disabled.png
+        construction_go_button:
+          - assets/templates/construction/construction_go_button.png
+        construction_requirement_upgrade:
+          - assets/templates/construction/construction_requirement_upgrade.png
+        construction_level_up_overlay:
+          - assets/templates/construction/construction_level_up_overlay.png
+        construction_resource_shortage:
+          - assets/templates/construction/construction_resource_shortage.png
+        construction_resource_autofill_button:
+          - assets/templates/construction/construction_resource_autofill_button.png
+        construction_resource_confirm_button:
+          - assets/templates/construction/construction_resource_confirm_button.png
+        construction_help_button:
+          - assets/templates/construction/construction_help_button.png
+        construction_william_button:
+          - assets/templates/construction/construction_william_button.png
+        construction_timer_panel:
+          - assets/templates/construction/construction_timer_panel.png
       investigation:
         research_icon:
           - assets/templates/investigation/research_icon.png
@@ -260,6 +294,8 @@ layouts:
           - assets/templates/investigation/AR/research_node_7.png
           - assets/templates/investigation/AR/research_node_8.png
           - assets/templates/investigation/AR/research_node_9.png
+          - assets/templates/investigation/AR/research_node_10.png
+          - assets/templates/investigation/AR/research_node_11.png
         research_free_button:
           - assets/templates/investigation/research_free_button.png
       heal_troops:
@@ -289,6 +325,7 @@ layouts:
           - assets/templates/caravan/caravan_combat_button2.png
         caravan_continue:
           - assets/templates/caravan/caravan_continue.png
+          - assets/templates/caravan/caravan_continue_alt.png
         caravan_battle_ready:
           - assets/templates/caravan/caravan_battle_ready.png
         caravan_field_red:
@@ -344,6 +381,8 @@ layouts:
           - assets/templates/boomer/boomer_team_up_button.png
         boomer_rally_icon:
           - assets/templates/boomer/boomer_rally_icon.png
+          - assets/templates/boomer/boomer_rally_icon_alt.png
+          - assets/templates/boomer/boomer_rally_icon_alt2.png
         boomer_auto_union_menu:
           - assets/templates/boomer/boomer_auto_union_menu.png
         boomer_auto_union_button:
@@ -360,6 +399,8 @@ layouts:
           - assets/templates/daily_quests/viviana_icon.png
         daily_quests_daily_tab_button:
           - assets/templates/daily_quests/daily_tab_button.png
+          - assets/templates/daily_quests/daily_tab_button_alt.png
+          - assets/templates/daily_quests/daily_tab_button_alt2.png
         daily_quests_claim_all_button:
           - assets/templates/daily_quests/claim_all_button.png
       claim_quick_rewards:
@@ -407,6 +448,7 @@ layouts:
           - assets/templates/troops/troop_state_gathering_alt.png
         troop_state_rally:
           - assets/templates/troops/troop_state_rally.png
+          - assets/templates/troops/troop_state_rally_alt.png
         troop_state_combat:
           - assets/templates/troops/troop_state_combat.png
           - assets/templates/troops/troop_state_combat_alt.png
@@ -422,9 +464,10 @@ layouts:
           - assets/templates/troops/troop_state_combat_alt11.png
           - assets/templates/troops/troop_state_combat_alt12.png
           - assets/templates/troops/troop_state_combat_alt13.png
+          - assets/templates/troops/troop_state_combat_alt14.png
     troop_state:
-      detection_threshold: 0.83    # optional, defaults to 0.85
-      debug_regions_enabled: true
+      detection_threshold: 0.75    # optional, defaults to 0.85
+      debug_regions_enabled: false
       slots:
         a:
           tap: [500, 490]
@@ -470,7 +513,7 @@ task_defaults:
     overlay_dark_threshold: 0.35
   caravan:
     icon_template: "caravan_icon"
-    icon_threshold: 0.82
+    icon_threshold: 0.68
     tap_delay: 2.0
     panel_delay: 3.0
     start_button: null
@@ -492,6 +535,15 @@ task_defaults:
     stage_retry_limit: 3
     battlefield_switch_attempts: 3
     battlefield_prev_level_button: "caravan_prev_level"
+    battlefield_prev_level_overrides:
+      Farm-07: "caravan_prev_level_alt"
+      Farm-08: "caravan_prev_level_alt"
+      Farm-09: "caravan_prev_level_alt"
+      Farm-10: "caravan_prev_level_alt"
+      Farm-11: "caravan_prev_level_alt"
+      Farm-12: "caravan_prev_level_alt"
+    global_cooldown_minutes: 120.0
+    global_cooldown_file: "state/caravan_cooldown.json"
     start_template: "caravan_start_button"
     start_threshold: 0.82
     start_timeout: 6.0
@@ -706,6 +758,46 @@ task_defaults:
           - [465, 395]
           - [550, 430]
     node_templates: ["research_node_templates"] #[]     reemplaza esta lista con tus plantillas de nodos (ver README)
+  construction:
+    icon_templates: ["construction_icon"]
+    hq_panel_templates: ["construction_hq_panel"]
+    upgrade_button_templates: ["construction_upgrade_button"]
+    upgrade_disabled_templates: ["construction_upgrade_button_disabled"]
+    go_button_templates: ["construction_go_button"]
+    requirement_upgrade_templates: ["construction_requirement_upgrade"]
+    level_up_templates: ["construction_level_up_overlay"]
+    resource_shortage_templates: ["construction_resource_shortage"]
+    resource_autofill_templates: ["construction_resource_autofill_button"]
+    resource_confirm_templates: ["construction_resource_confirm_button"]
+    help_button_templates: ["construction_help_button"]
+    william_button_templates: ["construction_william_button"]
+    timer_panel_templates: ["construction_timer_panel"]
+    timer_region:
+      - [185, 463]
+      - [338, 481]
+    timer_secondary_region:
+      - [184, 364]
+      - [339, 382]
+    overlay_dismiss_tap: [539, 0]
+    overlay_use_brightness: true
+    overlay_dark_threshold: 0.35
+    overlay_dark_region:
+      - [0.1, 0.9]
+      - [0.1, 0.9]
+    hq_tap: [270, 480]
+    icon_threshold: 0.82
+    panel_threshold: 0.82
+    button_threshold: 0.85
+    icon_timeout: 6.0
+    panel_timeout: 5.0
+    button_timeout: 5.0
+    tap_delay: 1.5
+    panel_delay: 2.0
+    go_travel_delay: 3.0
+    resource_panel_delay: 1.5
+    help_delay: 1.0
+    timer_settle_delay: 1.0
+    metadata_key: "next_ready_at"
   trucks:
     icon_template: "truck_icon"
     icon_threshold: 0.82
@@ -804,6 +896,7 @@ task_defaults:
     world_button_template: "world_button"
     max_troops: 2
     resource_priority: ["food", "wood"]
+    balanced_resource_allocation: true
     preferred_idle_slots:
       - "b"
       - "c"
@@ -895,7 +988,7 @@ task_defaults:
     world_button_threshold: 0.7
     sede_button_threshold: 0.75
     event_drag_start: [350, 915]
-    event_drag_end: [105, 915]
+    event_drag_end: [50, 915]  # ! cambiar
     target_focus_tap: [270, 440]
     completion_template: "furylord_completed"
     warning_template: "furylord_warning"
@@ -1063,50 +1156,104 @@ instances:
     instance: "Pie64_3"
     device_port: 5585
     routine: daily-basic
+    alliance_help_limit: 28
+    alliance_help_minutes: 4
+    free_research_minutes: 15
+    free_construction_minutes: 0
   - name: Farm-02
     instance: "Pie64_4"
     device_port: 5595
     routine: daily-basic
+    alliance_help_limit: 28
+    alliance_help_minutes: 4
+    free_research_minutes: 15
+    free_construction_minutes: 0
   - name: Farm-03
     instance: "Pie64_7"
     device_port: 5625
     routine: daily-basic
+    alliance_help_limit: 28
+    alliance_help_minutes: 4
+    free_research_minutes: 15
+    free_construction_minutes: 0
   - name: Farm-04
     instance: "Pie64_8"
     device_port: 5635
     routine: daily-basic
+    alliance_help_limit: 28
+    alliance_help_minutes: 4
+    free_research_minutes: 15
+    free_construction_minutes: 0
   - name: Farm-05
     instance: "Pie64_9"
     device_port: 5645
     routine: daily-basic
+    alliance_help_limit: 28
+    alliance_help_minutes: 4
+    free_research_minutes: 15
+    free_construction_minutes: 0
   - name: Farm-06
     instance: "Pie64_10"
     device_port: 5655
     routine: daily-basic
+    alliance_help_limit: 28
+    alliance_help_minutes: 4
+    free_research_minutes: 15
+    free_construction_minutes: 0
   - name: Farm-07
     instance: "Pie64_12"
     device_port: 5675
-    routine: daily-basic-no-caravan
+    routine: daily-basic
+    alliance_help_limit: 10
+    alliance_help_minutes: 2
+    free_research_minutes: 15
+    free_construction_minutes: 0
+    construction_enabled: true
   - name: Farm-08
     instance: "Pie64_13"
     device_port: 5685
-    routine: daily-basic-no-caravan
+    routine: daily-basic
+    alliance_help_limit: 10
+    alliance_help_minutes: 2
+    free_research_minutes: 15
+    free_construction_minutes: 0
+    construction_enabled: true
   - name: Farm-09
     instance: "Pie64_14"
     device_port: 5695
-    routine: daily-basic-no-caravan
+    routine: daily-basic
+    alliance_help_limit: 10
+    alliance_help_minutes: 2
+    free_research_minutes: 15
+    free_construction_minutes: 0
+    construction_enabled: true
   - name: Farm-10
     instance: "Pie64_15"
     device_port: 5705
-    routine: daily-basic-no-caravan
+    routine: daily-basic
+    alliance_help_limit: 10
+    alliance_help_minutes: 2
+    free_research_minutes: 15
+    free_construction_minutes: 0
+    construction_enabled: true
   - name: Farm-11
     instance: "Pie64_16"
     device_port: 5715
-    routine: daily-basic-no-caravan
+    routine: daily-basic
+    alliance_help_limit: 10
+    alliance_help_minutes: 2
+    free_research_minutes: 15
+    free_construction_minutes: 0
+    construction_enabled: true
   - name: Farm-12
     instance: "Pie64_17"
     device_port: 5725
-    routine: daily-basic-no-caravan
+    routine: daily-basic
+    alliance_help_limit: 10
+    alliance_help_minutes: 2
+    free_research_minutes: 15
+    free_construction_minutes: 0
+    construction_enabled: true
 
 routines:
   daily-basic:
@@ -1114,33 +1261,15 @@ routines:
       - task: collect_mail
       - task: collect_vip
       - task: investigation
+      - task: construction
       - task: heal_troops
       - task: attack_furylord
       - task: claim_rss_exploracion
       - task: claim_quick_rewards
-      - task: trucks
+      #- task: trucks
       - task: bounty_missions
-      - task: radar_quests
+      #- task: radar_quests
       - task: caravan
-      - task: rally_boomer
-      - task: gather_cycle
-      - task: daily_arena
-      - task: claim_daily_quests
-
-
-
-  daily-basic-no-caravan:
-    tasks:
-      - task: collect_mail
-      - task: collect_vip
-      - task: investigation
-      - task: heal_troops
-      - task: attack_furylord
-      - task: claim_rss_exploracion
-      - task: claim_quick_rewards
-      - task: trucks
-      - task: bounty_missions
-      - task: radar_quests
       - task: rally_boomer
       - task: gather_cycle
       - task: daily_arena

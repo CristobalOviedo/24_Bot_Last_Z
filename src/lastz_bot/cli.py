@@ -40,10 +40,34 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Ejecuta únicamente la tarea indicada ignorando el resto de la rutina",
         default=None,
     )
+    parser.add_argument(
+        "--pending",
+        action="store_true",
+        help="En vez de un orden fijo, ejecuta granjas siguiendo la cola dinámica de tareas pendientes",
+    )
+    parser.add_argument(
+        "--state-file",
+        default="state/daily_tasks.json",
+        help="Archivo JSON con el seguimiento diario (usado en modo --pending)",
+    )
+    parser.add_argument(
+        "--pending-poll",
+        type=float,
+        default=60.0,
+        help="Segundos a esperar entre consultas cuando no hay pendientes",
+    )
+    parser.add_argument(
+        "--pending-max",
+        type=int,
+        default=None,
+        help="Número máximo de granjas a despachar en modo --pending (por defecto infinito)",
+    )
 
     args = parser.parse_args(argv)
     if args.task and args.routine:
         parser.error("No puedes pasar --task junto con --routine")
+    if args.pending and args.loop:
+        parser.error("--pending no es compatible con --loop")
     return args
 
 def parse_farm_order(farm_arg: str | None, config) -> Sequence[str] | None:
@@ -80,6 +104,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         loop=args.loop,
         loop_start_index=args.loop_start,
         single_task=args.task,
+        pending_scheduler=args.pending,
+        state_file=Path(args.state_file),
+        pending_poll_interval=max(5.0, float(args.pending_poll)),
+        pending_max_runs=args.pending_max,
     )
 
     runner = RoutineRunner(config, options)

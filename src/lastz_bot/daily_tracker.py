@@ -10,6 +10,9 @@ from typing import Any, Dict, Mapping, Optional
 from rich.console import Console
 
 
+GATHER_SLOT_TASK_PREFIX = "gather_slot_"
+
+
 class DailyTaskTracker:
     """Persiste qué tareas se han completado por granja durante el día vigente."""
 

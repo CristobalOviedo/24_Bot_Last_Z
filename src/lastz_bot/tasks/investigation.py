@@ -133,6 +133,7 @@ class InvestigationConfig:
     resource_wait_timeout: float
     help_button_delay: float
     overlay_delay: float
+    badge_shortage_cooldown_minutes: float
     metadata_key: str
 
     @staticmethod
@@ -261,6 +262,9 @@ class InvestigationConfig:
             resource_wait_timeout=float(params.get("resource_wait_timeout", 6.0)),
             help_button_delay=float(params.get("help_button_delay", 1.0)),
             overlay_delay=float(params.get("overlay_delay", 0.5)),
+            badge_shortage_cooldown_minutes=float(
+                params.get("badge_shortage_cooldown_minutes", 1440.0)
+            ),
             metadata_key=str(params.get("metadata_key") or "next_ready_at"),
         )
 
@@ -287,70 +291,87 @@ class InvestigationTask:
             )
             return
 
-        panel_ready, saw_recommended = self._ensure_panel_ready(ctx, config)
+        panel_ready, saw_recommended, auto_recommended = self._ensure_panel_ready(ctx, config)
         if not panel_ready:
             ctx.console.log("[warning] No se pudo abrir el panel de investigación")
             return
 
+        if auto_recommended:
+            self._mark_investigation_completed(ctx, config, reason="panel recomendado se abrió automáticamente")
+            self._close_panel(ctx, config)
+            return
+
         handled = False
+        started_new_research = False
         if self._has_template(ctx, config.complete_button_templates, config.button_threshold):
             handled = self._complete_and_restart(ctx, config)
             if not handled:
                 self._close_panel(ctx, config)
                 return
             self._close_panel(ctx, config)
-            panel_ready, _ = self._ensure_panel_ready(ctx, config)
+            panel_ready, _, _ = self._ensure_panel_ready(ctx, config)
             if not panel_ready:
                 ctx.console.log("[warning] No se pudo reabrir el panel tras iniciar la investigación")
                 return
+            started_new_research = True
         elif saw_recommended:
             handled = self._start_new_research(ctx, config)
             if not handled:
                 self._close_panel(ctx, config)
                 return
             self._close_panel(ctx, config)
-            panel_ready, _ = self._ensure_panel_ready(ctx, config)
+            panel_ready, _, _ = self._ensure_panel_ready(ctx, config)
             if not panel_ready:
                 ctx.console.log("[warning] No se pudo leer el panel tras iniciar la investigación")
                 return
+            started_new_research = True
 
-        if self._capture_timer_and_store(ctx, config):
+        if self._capture_timer_and_store(
+            ctx,
+            config,
+            apply_help_reduction=started_new_research,
+        ):
             ctx.console.log("[info] Temporizador de investigación registrado")
         else:
             ctx.console.log("[warning] No se pudo leer el temporizador de investigación")
         self._close_panel(ctx, config)
 
     # --- panel helpers -------------------------------------------------
-    def _ensure_panel_ready(self, ctx: TaskContext, config: InvestigationConfig) -> Tuple[bool, bool]:
+    def _ensure_panel_ready(
+        self, ctx: TaskContext, config: InvestigationConfig
+    ) -> Tuple[bool, bool, bool]:
         if not ctx.vision:
-            return False, False
+            return False, False, False
 
         attempts = 0
         tried_open = False
         max_attempts = 2
         saw_recommended = False
+        auto_recommended = False
 
         while attempts <= max_attempts:
             if self._is_main_panel_visible(ctx, config):
-                return True, saw_recommended
+                return True, saw_recommended, auto_recommended
             if self._is_recommended_panel_visible(ctx, config):
                 saw_recommended = True
+                if tried_open:
+                    auto_recommended = True
                 ctx.console.log("[info] Rama recomendada detectada; regresando antes de continuar")
                 if not self._exit_recommended_panel(ctx, config):
-                    return False, saw_recommended
+                    return False, saw_recommended, auto_recommended
                 tried_open = False
                 attempts += 1
                 continue
             if not tried_open:
                 if not self._open_panel(ctx, config):
-                    return False, saw_recommended
+                    return False, saw_recommended, auto_recommended
                 tried_open = True
                 continue
             if not self._handle_unknown_panel_state(ctx, config):
                 break
             tried_open = False
             attempts += 1
-        return self._is_main_panel_visible(ctx, config), saw_recommended
+        return self._is_main_panel_visible(ctx, config), saw_recommended, auto_recommended
 
     def _is_main_panel_visible(self, ctx: TaskContext, config: InvestigationConfig) -> bool:
         if not ctx.vision or not config.panel_templates:
@@ -473,22 +494,60 @@ class InvestigationTask:
             ctx.device.sleep(config.back_delay)
 
     # --- timer handling ------------------------------------------------
-    def _capture_timer_and_store(self, ctx: TaskContext, config: InvestigationConfig) -> bool:
+    def _capture_timer_and_store(
+        self,
+        ctx: TaskContext,
+        config: InvestigationConfig,
+        *,
+        apply_help_reduction: bool,
+    ) -> bool:
         screenshot = ctx.vision.capture()
         if screenshot is None:
             return False
         try:
             remaining = read_timer_from_region(screenshot, config.timer_region)
         except pytesseract.TesseractNotFoundError:
+            failure_path = self._record_timer_failure_debug(
+                ctx,
+                screenshot,
+                config,
+                reason="tesseract-missing",
+            )
+            if failure_path:
+                ctx.console.log(f"[debug] Captura de temporizador guardada en {failure_path}")
             ctx.console.log(
                 "[error] pytesseract no encontró 'tesseract.exe'; instala Tesseract OCR o configura la variable TESSERACT_CMD con la ruta al ejecutable"
             )
             return False
         if not remaining:
+            failure_path = self._record_timer_failure_debug(
+                ctx,
+                screenshot,
+                config,
+                reason="ocr-empty",
+            )
+            if failure_path:
+                ctx.console.log(f"[debug] Capturas de temporizador guardadas en {failure_path.parent}")
             return False
-        ready_at = datetime.now() + remaining
-        self._store_ready_at(ctx, config, ready_at)
-        ctx.console.log(f"[info] Investigación lista a las {ready_at:%H:%M:%S}")
+        adjusted_remaining, reduction_minutes = self._apply_research_reductions(
+            ctx,
+            remaining,
+            include_help=apply_help_reduction,
+        )
+        ready_at = datetime.now() + adjusted_remaining
+        self._store_ready_at(
+            ctx,
+            config,
+            ready_at,
+            reduction_minutes=reduction_minutes,
+            raw_duration=remaining,
+        )
+        if reduction_minutes > 0:
+            ctx.console.log(
+                f"[info] Investigación lista a las {ready_at:%H:%M:%S} (reducción {reduction_minutes:.1f} min)"
+            )
+        else:
+            ctx.console.log(f"[info] Investigación lista a las {ready_at:%H:%M:%S}")
         return True
 
     def _store_ready_at(
@@ -496,6 +555,9 @@ class InvestigationTask:
         ctx: TaskContext,
         config: InvestigationConfig,
         ready_at: datetime,
+        *,
+        reduction_minutes: float = 0.0,
+        raw_duration: timedelta | None = None,
     ) -> None:
         if not ctx.daily_tracker:
             return
@@ -505,6 +567,63 @@ class InvestigationTask:
             config.metadata_key,
             ready_at.isoformat(),
         )
+        if reduction_minutes > 0:
+            ctx.daily_tracker.set_metadata(
+                ctx.farm.name,
+                self.name,
+                f"{config.metadata_key}_reduction_minutes",
+                round(reduction_minutes, 2),
+            )
+        else:
+            ctx.daily_tracker.set_metadata(
+                ctx.farm.name,
+                self.name,
+                f"{config.metadata_key}_reduction_minutes",
+                None,
+            )
+        if raw_duration is not None:
+            ctx.daily_tracker.set_metadata(
+                ctx.farm.name,
+                self.name,
+                f"{config.metadata_key}_raw_seconds",
+                int(raw_duration.total_seconds()),
+            )
+
+    def _clear_ready_metadata(self, ctx: TaskContext, config: InvestigationConfig) -> None:
+        if not ctx.daily_tracker:
+            return
+        ctx.daily_tracker.set_metadata(
+            ctx.farm.name,
+            self.name,
+            config.metadata_key,
+            None,
+        )
+        ctx.daily_tracker.set_metadata(
+            ctx.farm.name,
+            self.name,
+            f"{config.metadata_key}_reduction_minutes",
+            None,
+        )
+        ctx.daily_tracker.set_metadata(
+            ctx.farm.name,
+            self.name,
+            f"{config.metadata_key}_raw_seconds",
+            None,
+        )
+
+    def _mark_investigation_completed(
+        self,
+        ctx: TaskContext,
+        config: InvestigationConfig,
+        *,
+        reason: str,
+    ) -> None:
+        ctx.console.log(
+            f"[info] Investigación marcada como completada para {ctx.farm.name}: {reason}"
+        )
+        if ctx.daily_tracker:
+            ctx.daily_tracker.record_progress(ctx.farm.name, self.name)
+        self._clear_ready_metadata(ctx, config)
 
     def _get_next_ready_at(
         self,
@@ -524,6 +643,28 @@ class InvestigationTask:
             return datetime.fromisoformat(str(value))
         except ValueError:
             return None
+
+    def _apply_research_reductions(
+        self,
+        ctx: TaskContext,
+        remaining: timedelta,
+        *,
+        include_help: bool,
+    ) -> tuple[timedelta, float]:
+        if remaining.total_seconds() <= 0:
+            return remaining, 0.0
+        help_limit = getattr(ctx.farm, "alliance_help_limit", 0)
+        help_minutes = getattr(ctx.farm, "alliance_help_minutes", 0.0)
+        free_minutes = getattr(ctx.farm, "free_research_minutes", 0.0)
+        total_minutes = max(0.0, float(free_minutes))
+        if include_help and help_limit and help_minutes:
+            total_minutes += max(0.0, float(help_limit * help_minutes))
+        if total_minutes <= 0:
+            return remaining, 0.0
+        max_minutes = remaining.total_seconds() / 60.0
+        applied_minutes = min(total_minutes, max_minutes)
+        reduction = timedelta(minutes=applied_minutes)
+        return remaining - reduction, applied_minutes
 
     # --- flow ----------------------------------------------------------
     def _complete_and_restart(
@@ -741,6 +882,51 @@ class InvestigationTask:
             ctx.vision._record_debug_frame(preview, f"research-node-{label}")
         except Exception:
             pass
+
+    def _record_timer_failure_debug(
+        self,
+        ctx: TaskContext,
+        screenshot: np.ndarray,
+        config: InvestigationConfig,
+        reason: str,
+    ) -> Path | None:
+        if screenshot is None:
+            return None
+        try:
+            reason_slug = "".join(ch if ch.isalnum() else "-" for ch in reason.lower()).strip("-") or "unknown"
+            if ctx.vision:
+                ctx.vision._record_debug_frame(
+                    screenshot.copy(),
+                    f"research-timer-failure-{reason_slug}",
+                )
+            farm_name = ctx.farm.name if ctx.farm else "unknown"
+            live_dir = Path("debug_reports") / "live" / farm_name
+            live_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%H%M%S_%f")
+            base_name = f"{timestamp}_timer_failure_{reason_slug}"
+            full_path = live_dir / f"{base_name}.png"
+            cv2.imwrite(str(full_path), screenshot)
+
+            (x1, y1), (x2, y2) = config.timer_region
+            height, width = screenshot.shape[:2]
+            x_start, x_end = sorted((x1, x2))
+            y_start, y_end = sorted((y1, y2))
+            x_start = max(0, min(x_start, width))
+            x_end = max(0, min(x_end, width))
+            y_start = max(0, min(y_start, height))
+            y_end = max(0, min(y_end, height))
+            if x_end > x_start and y_end > y_start:
+                crop = screenshot[y_start:y_end, x_start:x_end]
+                if crop.size:
+                    cv2.imwrite(str(live_dir / f"{base_name}_crop.png"), crop)
+                    if ctx.vision:
+                        ctx.vision._record_debug_frame(
+                            crop.copy(),
+                            f"research-timer-failure-crop-{reason_slug}",
+                        )
+            return full_path
+        except Exception:
+            return None
 
     def _record_max_region_debug(
         self,
@@ -1030,6 +1216,17 @@ class InvestigationTask:
             config,
             label="badge-shortage-exit-2",
             fallback_message="[info] Segundo intento de salir tras falta de badges; usando fallback",
+        )
+        self._schedule_badge_cooldown(ctx, config)
+
+    def _schedule_badge_cooldown(self, ctx: TaskContext, config: InvestigationConfig) -> None:
+        cooldown = max(0.0, float(config.badge_shortage_cooldown_minutes))
+        if cooldown <= 0:
+            return
+        ready_at = datetime.now() + timedelta(minutes=cooldown)
+        self._store_ready_at(ctx, config, ready_at)
+        ctx.console.log(
+            f"[info] Se reintentará la investigación cuando haya badges (aprox. {ready_at:%Y-%m-%d %H:%M})"
         )
 
     def _press_help_and_exit(self, ctx: TaskContext, config: InvestigationConfig) -> None:

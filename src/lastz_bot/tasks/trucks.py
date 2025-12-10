@@ -330,6 +330,7 @@ class TrucksTask:
 
         attempt = 0
         rarity_obtained = False
+        forced_send = False
         while attempt <= max_rerolls:
             matched_rarity = self._wait_for_desired_rarity(
                 ctx,
@@ -363,11 +364,15 @@ class TrucksTask:
                 warning_timeout,
                 warning_delay,
             ):
-                ctx.console.log("[info] Advertencia al relanzar detectada; conservando rareza actual")
+                ctx.console.log(
+                    "[info] Sin dados para rerollear: se enviará el camión con la rareza disponible"
+                )
+                forced_send = True
+                rarity_obtained = True
                 break
             attempt += 1
 
-        if not rarity_obtained:
+        if not rarity_obtained and not forced_send:
             self._tap_back(ctx, send_delay)
             return False
 

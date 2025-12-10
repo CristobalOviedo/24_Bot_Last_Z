@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 import cv2
@@ -39,6 +42,26 @@ class CaravanTask:
             ctx.console.log("[warning] VisionHelper no disponible; 'caravan' requiere detecciones")
             return
 
+        cooldown_minutes = float(params.get("global_cooldown_minutes", 120.0))
+        cooldown_enabled = cooldown_minutes > 0
+        cooldown_path: Path | None = None
+        if cooldown_enabled:
+            cooldown_path = self._resolve_cooldown_path(params.get("global_cooldown_file"))
+            next_available, last_farm = self._load_cooldown_state(ctx, cooldown_path)
+            if next_available:
+                now = datetime.now()
+                if next_available > now:
+                    remaining = next_available - now
+                    eta = next_available.strftime("%H:%M:%S")
+                    source = last_farm or "desconocida"
+                    ctx.console.log(
+                        f"[info] Caravana omitida hasta {eta} (restan {self._format_duration(remaining)}; última ejecución: {source})"
+                    )
+                    return
+
+        cooldown_should_commit = False
+        run_aborted = False
+
         icon_template = params.get("icon_template") or "caravan_icon"
         icon_paths = self._template_paths(ctx, icon_template)
         if not icon_paths:
@@ -64,10 +87,10 @@ class CaravanTask:
         if panel_delay > 0:
             ctx.device.sleep(panel_delay)
 
-        prev_level = self._coord_from_value(
+        prev_level = self._resolve_prev_level_coord(
             ctx,
             params.get("battlefield_prev_level_button"),
-            "battlefield_prev_level_button",
+            params.get("battlefield_prev_level_overrides"),
         )
         start_button = self._coord_from_value(ctx, params.get("start_button"), "start_button")
         skip_button = self._coord_from_value(ctx, params.get("skip_button"), "skip_button")
@@ -149,6 +172,7 @@ class CaravanTask:
         post_field_delay = float(params.get("post_field_delay", 5.0))
 
         previous_field_completed = False
+        completed_any_field = False
         for spec in battlefields:
             if spec.switch_coord is not None and previous_field_completed and post_field_delay > 0:
                 ctx.device.sleep(post_field_delay)
@@ -167,10 +191,17 @@ class CaravanTask:
             )
 
             if color_template_map and not color_verified:
-                ctx.console.log(
-                    f"[warning] No se pudo confirmar el campo '{spec.color}'; se detectó '{detected_color or 'desconocido'}'. Se aborta la caravana."
-                )
-                break
+                if spec.switch_coord is None and not detected_color:
+                    ctx.console.log(
+                        f"[warning] No se pudo confirmar el campo '{spec.color}' (detección vacía); usando color por defecto"
+                    )
+                    detected_color = spec.color
+                else:
+                    ctx.console.log(
+                        f"[warning] No se pudo confirmar el campo '{spec.color}'; se detectó '{detected_color or 'desconocido'}'. Se aborta la caravana."
+                    )
+                    run_aborted = True
+                    break
 
             color_name = detected_color or spec.color
             color_coord = color_buttons.get(color_name.lower())
@@ -250,8 +281,12 @@ class CaravanTask:
                 ctx.console.log(
                     f"[warning] Se abortó la caravana durante el campo '{spec.name}'"
                 )
+                run_aborted = True
                 break
             previous_field_completed = True
+            completed_any_field = True
+        else:
+            run_aborted = False
 
         if tap_back_button(ctx, label="caravan-exit"):
             ctx.console.log("Regresando a la pantalla principal")
@@ -267,6 +302,21 @@ class CaravanTask:
                 ctx.console.log(
                     "[warning] No se detectó el botón del mundo tras la caravana; verifica manualmente"
                 )
+
+        if (
+            cooldown_enabled
+            and completed_any_field
+            and not run_aborted
+            and cooldown_path
+        ):
+            next_available = datetime.now() + timedelta(minutes=cooldown_minutes)
+            self._store_cooldown_state(
+                ctx,
+                cooldown_path,
+                next_available,
+                ctx.farm.name,
+                cooldown_minutes,
+            )
 
     def _run_battlefield(
         self,
@@ -469,6 +519,79 @@ class CaravanTask:
                 ctx.device.sleep(stage_transition_delay)
         ctx.console.log(f"Campo '{spec.name}' finalizado")
         return True
+
+    def _resolve_cooldown_path(self, value: Any) -> Path:
+        raw = str(value).strip() if value else "state/caravan_cooldown.json"
+        path = Path(raw)
+        if not path.is_absolute():
+            path = Path.cwd() / path
+        return path
+
+    def _load_cooldown_state(
+        self,
+        ctx: TaskContext,
+        path: Path,
+    ) -> tuple[datetime | None, str | None]:
+        if not path.exists():
+            return None, None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            ctx.console.log(
+                f"[warning] No se pudo leer el cooldown global de caravana ({exc}); se reiniciará"
+            )
+            return None, None
+        if not isinstance(data, dict):
+            return None, None
+        next_raw = data.get("next_available_at")
+        last_farm = data.get("last_farm")
+        if isinstance(next_raw, str):
+            try:
+                timestamp = datetime.fromisoformat(next_raw)
+            except ValueError:
+                ctx.console.log(
+                    "[warning] Timestamp inválido en cooldown global de caravana; se ignorará"
+                )
+            else:
+                return timestamp, str(last_farm) if last_farm else None
+        return None, str(last_farm) if last_farm else None
+
+    def _store_cooldown_state(
+        self,
+        ctx: TaskContext,
+        path: Path,
+        next_available: datetime,
+        farm_name: str,
+        cooldown_minutes: float,
+    ) -> None:
+        payload = {
+            "next_available_at": next_available.isoformat(),
+            "last_farm": farm_name,
+        }
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError as exc:
+            ctx.console.log(
+                f"[warning] No se pudo guardar el cooldown global de caravana en {path}: {exc}"
+            )
+            return
+        eta = next_available.strftime("%H:%M:%S")
+        ctx.console.log(
+            f"[info] Caravana terminada en {farm_name}; próxima disponible a las {eta} (cada {int(cooldown_minutes)} min)"
+        )
+
+    @staticmethod
+    def _format_duration(delta: timedelta) -> str:
+        total_seconds = max(0, int(delta.total_seconds()))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, _ = divmod(remainder, 60)
+        parts: List[str] = []
+        if hours:
+            parts.append(f"{hours}h")
+        if minutes or not parts:
+            parts.append(f"{minutes}m")
+        return " ".join(parts)
 
     def _complete_stage(
         self,
@@ -681,6 +804,29 @@ class CaravanTask:
                 coords.append(coord)
         return coords
 
+    def _resolve_prev_level_coord(
+        self,
+        ctx: TaskContext,
+        default_value: Any,
+        overrides: Any,
+    ) -> Coord | None:
+        override_value: Any | None = None
+        if isinstance(overrides, Mapping):
+            override_value = overrides.get(ctx.farm.name)
+            if override_value is None:
+                override_value = overrides.get(ctx.farm.name.lower())
+        target_value = override_value if override_value is not None else default_value
+        coord = self._coord_from_value(
+            ctx,
+            target_value,
+            "battlefield_prev_level_button",
+        )
+        if coord and override_value is not None:
+            ctx.console.log(
+                f"Usando botón alternativo de nivel previo para {ctx.farm.name}"
+            )
+        return coord
+
     def _coord_from_value(
         self,
         ctx: TaskContext,
@@ -884,6 +1030,39 @@ class CaravanTask:
             ctx.console.log(f"Campo actual detectado como '{color}'")
         return color
 
+    def _log_color_detection_miss(
+        self,
+        ctx: TaskContext,
+        spec: BattlefieldSpec,
+        color_templates: Mapping[str, Sequence[Any]],
+        threshold: float,
+        reason: str,
+    ) -> None:
+        if not ctx.vision:
+            return
+        template_paths: List[Any] = []
+        for paths in color_templates.values():
+            template_paths.extend(paths)
+        if not template_paths:
+            return
+        screenshot = ctx.vision.capture_for_debug(f"caravan-{reason}-{spec.name}")
+        best = ctx.vision.best_template_score(template_paths, image=screenshot)
+        if not best:
+            ctx.console.log(
+                "[info] No hubo coincidencias relevantes durante la depuración de color"
+            )
+            return
+        best_path, score = best
+        detected_color = None
+        for color_name, paths in color_templates.items():
+            if best_path in paths:
+                detected_color = color_name
+                break
+        color_label = detected_color or best_path.stem
+        ctx.console.log(
+            f"[info] Mejor coincidencia de color '{color_label}' obtuvo {score:.2f} (umbral {threshold:.2f})"
+        )
+
     def _focus_battlefield_color(
         self,
         ctx: TaskContext,
@@ -903,12 +1082,20 @@ class CaravanTask:
             return None, True
 
         if switch_coord is None:
-            detected = self._detect_battlefield_color(
-                ctx, color_templates, threshold, timeout, poll_interval
+            attempts = max(1, max_attempts)
+            last_detected: str | None = None
+            for attempt in range(1, attempts + 1):
+                last_detected = self._detect_battlefield_color(
+                    ctx, color_templates, threshold, timeout, poll_interval
+                )
+                if last_detected is not None:
+                    return last_detected, last_detected.lower() == expected
+                if attempt < attempts and switch_delay > 0:
+                    ctx.device.sleep(switch_delay)
+            self._log_color_detection_miss(
+                ctx, spec, color_templates, threshold, "color-miss-noswitch"
             )
-            if detected is None:
-                return None, False
-            return detected, detected == expected
+            return None, False
 
         attempts = max(1, max_attempts)
         last_detected: str | None = None
@@ -922,10 +1109,14 @@ class CaravanTask:
             last_detected = self._detect_battlefield_color(
                 ctx, color_templates, threshold, timeout, poll_interval
             )
-            if last_detected == expected:
+            if last_detected and last_detected.lower() == expected:
                 return last_detected, True
             msg = last_detected or "desconocido"
             ctx.console.log(
                 f"[warning] Campo detectado '{msg}' tras cambio '{spec.name}' (esperado '{expected}')"
+            )
+        if last_detected is None:
+            self._log_color_detection_miss(
+                ctx, spec, color_templates, threshold, "color-miss-switch"
             )
         return last_detected, False

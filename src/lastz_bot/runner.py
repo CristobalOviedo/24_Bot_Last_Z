@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Sequence
+from typing import Any, Collection, Dict, Iterable, List, Mapping, MutableMapping, Sequence
 import os
 import time
 
@@ -21,7 +23,7 @@ import pytesseract
 class RoutineRestartError(RuntimeError):
     """Señala que la rutina debe reiniciarse desde BlueStacks."""
 
-from .daily_tracker import DailyTaskTracker
+from .daily_tracker import DailyTaskTracker, GATHER_SLOT_TASK_PREFIX
 from .devices import (
     BlueStacksInstanceManager,
     DeviceController,
@@ -31,6 +33,7 @@ from .devices import (
 from .tasks import build_registry
 from .tasks.base import TaskContext
 from .vision import VisionHelper
+from .pending import collect_pending_tasks as pending_order, load_daily_tasks, parse_datetime
 
 
 @dataclass
@@ -45,6 +48,10 @@ class RunnerOptions:
     loop: bool = False
     loop_start_index: int = 1
     single_task: str | None = None
+    pending_scheduler: bool = False
+    state_file: Path | None = None
+    pending_poll_interval: float = 60.0
+    pending_max_runs: int | None = None
 
 
 class RoutineRunner:
@@ -74,6 +81,12 @@ class RoutineRunner:
         self.debug_reporter: DebugReporter = get_debug_reporter()
         self._truck_trigger_state: Dict[str, float] = {}
         self._radar_trigger_state: Dict[str, float] = {}
+        self._last_fallback_farm: str | None = None
+        self._recent_farm_history: deque[str] = deque(maxlen=8)
+        self._pair_loop_window = max(4, int(self.config.timing("pending_pair_loop_window", 6)))
+        self._pending_idle_threshold_hours = max(
+            0.0, float(self.config.timing("pending_idle_hours", 8.0))
+        )
         tracking_cfg = config.daily_tracking
         if (
             tracking_cfg
@@ -95,7 +108,28 @@ class RoutineRunner:
             self.console.print("[bold red]No hay granjas para ejecutar")
             return
         farms = self._apply_loop_rotation(farms)
+        self._print_farm_summary(farms)
 
+        if self.options.pending_scheduler:
+            self._run_pending_scheduler(farms)
+            return
+
+        iteration = 0
+        try:
+            while True:
+                iteration += 1
+                if self.options.loop:
+                    self.console.rule(f"Iteración #{iteration}")
+
+                for farm in farms:
+                    self._execute_farm(farm)
+
+                if not self.options.loop:
+                    break
+        except KeyboardInterrupt:
+            self.console.log("[info] Ejecución interrumpida por el usuario")
+
+    def _print_farm_summary(self, farms: Sequence[InstanceConfig]) -> None:
         summary = Table(title="Granjas seleccionadas")
         summary.add_column("#")
         summary.add_column("Farm")
@@ -110,59 +144,358 @@ class RoutineRunner:
             )
         self.console.print(summary)
 
-        iteration = 0
+    def _execute_farm(self, farm: InstanceConfig) -> None:
+        routine_id = self.options.routine_override or farm.routine
+        routine = self._single_task_routine or self.config.routine_for(routine_id)
+        layout = self.config.layout_for(farm)
+        total_tasks = len(routine.tasks)
+        next_task_idx = 0
+        restart_attempts = 0
+        max_restarts = max(0, int(self.config.timing("routine_restart_attempts", 1)))
+
+        self.console.rule(f"{farm.name} :: rutina {self._routine_label(farm)}")
+        while next_task_idx < total_tasks:
+            try:
+                next_task_idx = self._run_routine_attempt(
+                    farm,
+                    routine,
+                    layout,
+                    start_task=next_task_idx,
+                )
+            except DeviceRecoverableError as exc:
+                self.console.log(
+                    f"[error] {farm.name}: dispositivo no respondió ({exc}); se omitirá la granja"
+                )
+                break
+            except RoutineRestartError as exc:
+                folder = self.debug_reporter.persist_failure(
+                    farm.name, str(exc)
+                )
+                if folder:
+                    self.console.log(
+                        f"[warning] Artifacts guardados para {farm.name} en {folder}"
+                    )
+                restart_attempts += 1
+                if restart_attempts > max_restarts:
+                    self.console.log(
+                        f"[error] {farm.name}: se excedieron los reinicios permitidos ({exc})"
+                    )
+                    break
+                self.console.log(
+                    f"[warning] {farm.name}: {exc}; reiniciando intento {restart_attempts}/{max_restarts}"
+                )
+                continue
+
+            if next_task_idx < total_tasks:
+                self.console.log(
+                    f"[warning] {farm.name}: rutina incompleta ({next_task_idx}/{total_tasks} tareas)"
+                )
+
+    def _run_pending_scheduler(self, farms: Sequence[InstanceConfig]) -> None:
+        state_path = self.options.state_file
+        if not state_path:
+            default_path = "state/daily_tasks.json"
+            tracking = self.config.daily_tracking
+            if tracking and tracking.storage_path:
+                default_path = tracking.storage_path
+            state_path = Path(default_path)
+        poll = max(5.0, float(self.options.pending_poll_interval or 60.0))
+        max_runs = self.options.pending_max_runs
+        farm_map = {farm.name: farm for farm in farms}
+        if not farm_map:
+            farm_map = {farm.name: farm for farm in self.config.instances}
+        if not farm_map:
+            self.console.print("[bold red]No hay granjas disponibles para modo pending")
+            return
+
+        processed = 0
+        last_run_farm: str | None = None
+        consecutive_runs = 0
+        repeat_limit = 3  # salta a otra granja cuando se alcanzan 3 ejecuciones seguidas
+        self.console.rule("Scheduler de pendientes activo")
         try:
             while True:
-                iteration += 1
-                if self.options.loop:
-                    self.console.rule(f"Iteración #{iteration}")
+                data = load_daily_tasks(state_path)
+                entries = pending_order(data)
+                ordered = [entry for entry in entries if entry.farm in farm_map]
+                if not ordered:
+                    self.console.log(
+                        f"[info] No hay tareas pendientes; esperando {poll:.0f}s antes de reintentar"
+                    )
+                    time.sleep(poll)
+                    continue
 
-                for farm in farms:
-                    routine_id = self.options.routine_override or farm.routine
-                    routine = self._single_task_routine or self.config.routine_for(routine_id)
-                    layout = self.config.layout_for(farm)
-                    total_tasks = len(routine.tasks)
-                    next_task_idx = 0
-                    restart_attempts = 0
-                    max_restarts = max(0, int(self.config.timing("routine_restart_attempts", 1)))
+                now = datetime.now()
+                ready = [item for item in ordered if not item.next_ready or item.next_ready <= now]
+                selected = ready[0] if ready else None
+                fallback_last_update: datetime | None = None
+                using_fallback = False
+                next_due = next((entry.next_ready for entry in ordered if entry.next_ready), None)
+                next_hint = ordered[0].next_ready if ordered else None
 
-                    self.console.rule(f"{farm.name} :: rutina {self._routine_label(farm)}")
-                    while next_task_idx < total_tasks:
-                        try:
-                            next_task_idx = self._run_routine_attempt(
-                                farm,
-                                routine,
-                                layout,
-                                start_task=next_task_idx,
-                            )
-                        except RoutineRestartError as exc:
-                            folder = self.debug_reporter.persist_failure(
-                                farm.name, str(exc)
-                            )
-                            if folder:
-                                self.console.log(
-                                    f"[warning] Artifacts guardados para {farm.name} en {folder}"
-                                )
-                            restart_attempts += 1
-                            if restart_attempts > max_restarts:
-                                self.console.log(
-                                    f"[error] {farm.name}: se excedieron los reinicios permitidos ({exc})"
-                                )
-                                break
+                if selected is None:
+                    if next_due and next_due > now:
+                        self._wait_for_next_ready(next_due, poll)
+                        continue
+                    farm, fallback_last_update = self._select_least_recent_farm(
+                        data,
+                        farm_map,
+                        previous=self._last_fallback_farm,
+                    )
+                    if not farm:
+                        self.console.log(
+                            f"[info] No hay granjas disponibles para rotación; esperando {poll:.0f}s"
+                        )
+                        time.sleep(poll)
+                        continue
+                    using_fallback = True
+                else:
+                    farm = farm_map[selected.farm]
+
+                if not farm:
+                    time.sleep(poll)
+                    continue
+
+                idle_farm, idle_last_update = self._select_idle_farm(
+                    data,
+                    farm_map,
+                    threshold_hours=self._pending_idle_threshold_hours,
+                    skip_names={farm.name},
+                )
+                if idle_farm and idle_farm.name != farm.name:
+                    age_text = (
+                        f"{((datetime.now() - idle_last_update).total_seconds() / 3600):.1f}h"
+                        if idle_last_update
+                        else "sin registros previos"
+                    )
+                    self.console.log(
+                        f"[warning] {idle_farm.name} lleva {age_text} sin actividad; priorizando esta granja"
+                    )
+                    selected = None
+                    farm = idle_farm
+                    fallback_last_update = idle_last_update
+                    using_fallback = True
+
+                repeated_candidate = (
+                    last_run_farm
+                    and farm.name == last_run_farm
+                    and consecutive_runs >= repeat_limit - 1
+                )
+                if repeated_candidate:
+                    alt_entry, alt_farm = self._select_ready_alternative(
+                        ready,
+                        farm_map,
+                        skip_names={farm.name},
+                    )
+                    if alt_farm:
+                        self.console.log(
+                            f"[warning] {farm.name} se ejecutó {repeat_limit} veces seguidas; alternando a {alt_farm.name}"
+                        )
+                        selected = alt_entry
+                        farm = alt_farm
+                        fallback_last_update = None
+                        using_fallback = False
+                    else:
+                        alt_farm, alt_last_update = self._select_least_recent_farm(
+                            data,
+                            farm_map,
+                            previous=self._last_fallback_farm,
+                            blocked={farm.name},
+                        )
+                        if alt_farm:
                             self.console.log(
-                                f"[warning] {farm.name}: {exc}; reiniciando intento {restart_attempts}/{max_restarts}"
+                                f"[warning] {farm.name} se ejecutó {repeat_limit} veces seguidas; rotando a {alt_farm.name}"
                             )
+                            selected = None
+                            farm = alt_farm
+                            fallback_last_update = alt_last_update
+                            using_fallback = True
+                        else:
+                            self.console.log(
+                                f"[warning] {farm.name} se ejecutó {repeat_limit} veces seguidas, pero no hay granjas alternas listas; se continuará"
+                            )
+
+                pair_block = self._detect_pair_loop(farm.name)
+                if pair_block:
+                    alt_entry, alt_farm = self._select_ready_alternative(
+                        ready,
+                        farm_map,
+                        skip_names=pair_block,
+                    )
+                    pair_text = ", ".join(sorted(pair_block))
+                    if alt_farm:
+                        self.console.log(
+                            f"[warning] Se detectó un bucle entre {pair_text}; cambiando a {alt_farm.name}"
+                        )
+                        selected = alt_entry
+                        farm = alt_farm
+                        fallback_last_update = None
+                        using_fallback = False
+                    else:
+                        alt_farm, alt_last_update = self._select_least_recent_farm(
+                            data,
+                            farm_map,
+                            previous=self._last_fallback_farm,
+                            blocked=pair_block,
+                        )
+                        if alt_farm:
+                            self.console.log(
+                                f"[warning] Se detectó un bucle entre {pair_text}; rotando a {alt_farm.name}"
+                            )
+                            selected = None
+                            farm = alt_farm
+                            fallback_last_update = alt_last_update
+                            using_fallback = True
+                        else:
+                            self.console.log(
+                                f"[warning] Solo {pair_text} tienen pendientes activos; esperando {poll:.0f}s antes de reintentar"
+                            )
+                            time.sleep(poll)
                             continue
 
-                        if next_task_idx < total_tasks:
-                            self.console.log(
-                                f"[warning] {farm.name}: rutina incompleta ({next_task_idx}/{total_tasks} tareas)"
-                            )
+                if using_fallback:
+                    self._last_fallback_farm = farm.name
+                    next_due_candidate = next_due or next_hint
+                    next_due_text = (
+                        next_due_candidate.strftime("%H:%M:%S")
+                        if next_due_candidate
+                        else "—"
+                    )
+                    last_text = (
+                        fallback_last_update.strftime("%H:%M:%S")
+                        if fallback_last_update
+                        else "sin registros"
+                    )
+                    self.console.rule(
+                        f"Siguiente granja: {farm.name} (rotación por inactividad; última {last_text}, próxima tarea {next_due_text})"
+                    )
+                else:
+                    self._last_fallback_farm = None
+                    next_ready_text = selected.next_ready if selected else "—"
+                    task_name = selected.name if selected else "pendiente"
+                    self.console.rule(
+                        f"Siguiente granja: {farm.name} (tarea {task_name}, próxima {next_ready_text or '—'})"
+                    )
 
-                if not self.options.loop:
+                if farm.name == last_run_farm:
+                    consecutive_runs += 1
+                else:
+                    last_run_farm = farm.name
+                    consecutive_runs = 1
+
+                self._execute_farm(farm)
+                self._recent_farm_history.append(farm.name)
+                processed += 1
+                if max_runs and processed >= max_runs:
+                    self.console.log(
+                        f"[info] Se alcanzó el límite de ejecuciones ({max_runs}) en modo pending"
+                    )
                     break
         except KeyboardInterrupt:
-            self.console.log("[info] Ejecución interrumpida por el usuario")
+            self.console.log("[info] Scheduler interrumpido por el usuario")
+
+    def _select_ready_alternative(
+        self,
+        ready: Sequence[Any],
+        farm_map: Mapping[str, InstanceConfig],
+        *,
+        skip_names: Collection[str] | None = None,
+    ) -> tuple[Any | None, InstanceConfig | None]:
+        skip = set(skip_names or ())
+        for entry in ready:
+            farm = farm_map.get(getattr(entry, "farm", ""))
+            if not farm or (skip and farm.name in skip):
+                continue
+            return entry, farm
+        return None, None
+
+    def _detect_pair_loop(self, candidate: str) -> set[str] | None:
+        history = list(self._recent_farm_history)
+        history.append(candidate)
+        window = history[-self._pair_loop_window :]
+        if len(window) < self._pair_loop_window:
+            return None
+        unique = set(window)
+        return unique if len(unique) <= 2 else None
+
+    def _wait_for_next_ready(self, target: datetime, poll: float) -> None:
+        remaining = (target - datetime.now()).total_seconds()
+        if remaining <= 0:
+            return
+        wait_seconds = max(5.0, min(remaining, poll))
+        eta = target.strftime("%H:%M:%S")
+        self.console.log(
+            f"[info] Todas las tareas pendientes estarán listas alrededor de {eta}; esperando {wait_seconds:.0f}s"
+        )
+        time.sleep(wait_seconds)
+
+    def _select_least_recent_farm(
+        self,
+        data: Mapping[str, Any],
+        farm_map: Mapping[str, InstanceConfig],
+        *,
+        previous: str | None = None,
+        blocked: Collection[str] | None = None,
+    ) -> tuple[InstanceConfig | None, datetime | None]:
+        last_updates = self._collect_farm_last_updates(data)
+        sorted_candidates: list[tuple[datetime, InstanceConfig, datetime | None]] = []
+        for name, farm in farm_map.items():
+            ts = last_updates.get(name)
+            key = ts or datetime.min
+            sorted_candidates.append((key, farm, ts))
+        sorted_candidates.sort(key=lambda item: item[0])
+        for key, farm, ts in sorted_candidates:
+            if blocked and farm.name in blocked:
+                continue
+            if previous and farm.name == previous and len(sorted_candidates) > 1:
+                continue
+            return farm, ts
+        return None, None
+
+    def _select_idle_farm(
+        self,
+        data: Mapping[str, Any],
+        farm_map: Mapping[str, InstanceConfig],
+        *,
+        threshold_hours: float,
+        skip_names: Collection[str] | None = None,
+    ) -> tuple[InstanceConfig | None, datetime | None]:
+        if threshold_hours <= 0:
+            return None, None
+        last_updates = self._collect_farm_last_updates(data)
+        skip = set(skip_names or ())
+        candidate: tuple[str, datetime | None] | None = None
+        for name, farm in farm_map.items():
+            if skip and name in skip:
+                continue
+            ts = last_updates.get(name)
+            if ts is None:
+                return farm, None
+            if not candidate or (ts and ts < candidate[1]):
+                candidate = (name, ts)
+        if not candidate or candidate[1] is None:
+            return None, None
+        idle_ts = candidate[1]
+        if datetime.now() - idle_ts >= timedelta(hours=threshold_hours):
+            return farm_map[candidate[0]], idle_ts
+        return None, None
+
+    def _collect_farm_last_updates(self, data: Mapping[str, Any]) -> Dict[str, datetime | None]:
+        result: Dict[str, datetime | None] = {}
+        for farm_name, tasks in data.items():
+            if not isinstance(tasks, MutableMapping):
+                continue
+            last_update: datetime | None = None
+            for task_name, entry in tasks.items():
+                if task_name.startswith(GATHER_SLOT_TASK_PREFIX):
+                    continue
+                if not isinstance(entry, MutableMapping):
+                    continue
+                ts = parse_datetime(entry.get("timestamp"))
+                if ts and (last_update is None or ts > last_update):
+                    last_update = ts
+            result[farm_name] = last_update
+        return result
 
     def _run_routine_attempt(
         self,
@@ -235,6 +568,7 @@ class RoutineRunner:
                     while task_index < len(routine.tasks):
                         spec = routine.tasks[task_index]
                         task = self.registry.get(spec.task)
+                        farm_console.set_task(spec.task)
                         allow_repeat = getattr(
                             task, "allow_repeat_after_completion", False
                         )
@@ -242,36 +576,39 @@ class RoutineRunner:
                             self.daily_tracker
                             and self.daily_tracker.should_skip(farm.name, spec.task)
                         )
-                        if should_skip and not allow_repeat:
-                            self.console.log(
-                                f"[info] '{spec.task}' ya se completó desde el último reset para {farm.name}; saltando"
+                        try:
+                            if should_skip and not allow_repeat:
+                                self.console.log(
+                                    f"[info] '{spec.task}' ya se completó desde el último reset para {farm.name}; saltando"
+                                )
+                                task_index += 1
+                                continue
+                            self._ensure_world_screen(
+                                layout,
+                                vision,
+                                stage=f"antes de '{spec.task}'",
+                                strict=True,
                             )
+                            self._maybe_trigger_trucks(ctx)
+                            self._maybe_trigger_radar_quests(ctx)
+                            self.console.log(f"Ejecutando task '{spec.task}'")
+                            params = self.config.task_defaults_for(spec.task)
+                            if spec.params:
+                                params.update(spec.params)
+                            task.run(ctx, params)
+                            if self.daily_tracker and not getattr(task, "manual_daily_logging", False):
+                                self.daily_tracker.record_progress(farm.name, spec.task)
+                            self._ensure_world_screen(
+                                layout,
+                                vision,
+                                stage=f"después de '{spec.task}'",
+                                strict=True,
+                            )
+                            self._maybe_trigger_trucks(ctx)
+                            self._maybe_trigger_radar_quests(ctx)
                             task_index += 1
-                            continue
-                        self._ensure_world_screen(
-                            layout,
-                            vision,
-                            stage=f"antes de '{spec.task}'",
-                            strict=True,
-                        )
-                        self._maybe_trigger_trucks(ctx)
-                        self._maybe_trigger_radar_quests(ctx)
-                        self.console.log(f"Ejecutando task '{spec.task}'")
-                        params = self.config.task_defaults_for(spec.task)
-                        if spec.params:
-                            params.update(spec.params)
-                        task.run(ctx, params)
-                        if self.daily_tracker and not getattr(task, "manual_daily_logging", False):
-                            self.daily_tracker.record_progress(farm.name, spec.task)
-                        self._ensure_world_screen(
-                            layout,
-                            vision,
-                            stage=f"después de '{spec.task}'",
-                            strict=True,
-                        )
-                        self._maybe_trigger_trucks(ctx)
-                        self._maybe_trigger_radar_quests(ctx)
-                        task_index += 1
+                        finally:
+                            farm_console.set_task(None)
 
                     return task_index
                 except (DeviceCaptureError, DeviceRecoverableError) as exc:
@@ -327,6 +664,7 @@ class RoutineRunner:
     ) -> None:
         """Intenta abrir el juego ya sea por template o coordenada de layout."""
         if self._launch_game_via_template(layout, vision):
+            self._confirm_game_loading(layout, vision)
             self._ensure_game_launched(layout, vision)
             return
         launch_coord = getattr(layout, "buttons", {}).get("launch_game")
@@ -337,6 +675,7 @@ class RoutineRunner:
         launch_wait = self.config.timing("game_launch_wait_seconds", 0)
         if launch_wait > 0:
             vision.device.sleep(launch_wait)
+        self._confirm_game_loading(layout, vision)
         self._ensure_game_launched(layout, vision, fallback_tap=launch_coord)
 
     def _launch_game_via_template(
@@ -438,6 +777,62 @@ class RoutineRunner:
             return layout.template_paths("level_up_overlay")
         except KeyError:
             return []
+
+    @staticmethod
+    def _game_loading_template_name(layout: LayoutConfig) -> str | None:
+        if "game_loading_screen" in layout.templates:
+            return "game_loading_screen"
+        if "game_loading" in layout.templates:
+            return "game_loading"
+        return None
+
+    def _confirm_game_loading(self, layout: LayoutConfig, vision: VisionHelper) -> None:
+        template_name = self._game_loading_template_name(layout)
+        if not template_name:
+            return
+        try:
+            loading_paths = layout.template_paths(template_name)
+        except KeyError:
+            return
+        if not loading_paths:
+            return
+
+        timeout = max(1.0, self.config.timing("game_loading_detect_timeout", 10.0))
+        threshold = self.config.timing("game_loading_detect_threshold", 0.75)
+        attempts = max(1, int(self.config.timing("game_loading_retry_attempts", 2)))
+        retry_delay = self.config.timing("game_launch_retry_delay", 2.0)
+        icon_paths = self._launch_icon_paths(layout)
+        icon_threshold = self.config.timing("launch_game_template_threshold", 0.85)
+
+        for attempt in range(attempts):
+            result = vision.wait_for_any_template(
+                loading_paths,
+                timeout=timeout,
+                poll_interval=0.5,
+                threshold=threshold,
+                raise_on_timeout=False,
+            )
+            if result:
+                _, matched_path = result
+                self.console.log(
+                    f"Pantalla de carga detectada ('{matched_path.name}') tras lanzar el juego"
+                )
+                return
+            if icon_paths:
+                still_home = vision.find_any_template(icon_paths, threshold=icon_threshold)
+                if still_home:
+                    coords, matched_path = still_home
+                    self.console.log(
+                        f"[warning] El icono '{matched_path.name}' sigue visible tras lanzar (verificación {attempt + 1}/{attempts}); reintentando"
+                    )
+                    vision.device.tap(coords, label="launch-game-template-retry")
+                    if retry_delay > 0:
+                        vision.device.sleep(retry_delay)
+                    continue
+            break
+        self.console.log(
+            "[warning] No se confirmó la pantalla de carga tras lanzar el juego; se continuará"
+        )
 
     def _dismiss_level_up_overlay(
         self,
@@ -648,9 +1043,16 @@ class RoutineRunner:
         trucks_task = self.registry.get("trucks")
         if trucks_task is None:
             return
-        self.console.log("[info] Icono de camión con alerta detectado; ejecutando 'trucks'")
-        params = self.config.task_defaults_for("trucks")
-        trucks_task.run(ctx, params)
+        previous_task = self.console.current_task() if hasattr(self.console, "current_task") else None
+        if hasattr(self.console, "set_task"):
+            self.console.set_task("trucks(auto)")
+        try:
+            self.console.log("[info] Icono de camión con alerta detectado; ejecutando 'trucks'")
+            params = self.config.task_defaults_for("trucks")
+            trucks_task.run(ctx, params)
+        finally:
+            if hasattr(self.console, "set_task"):
+                self.console.set_task(previous_task)
         self._truck_trigger_state[ctx.farm.name] = now
         self._ensure_world_screen(ctx.layout, vision, stage="tras trucks automáticos", strict=False)
 
@@ -678,9 +1080,16 @@ class RoutineRunner:
         radar_task = self.registry.get("radar_quests")
         if radar_task is None:
             return
-        self.console.log("[info] Icono de radar con alerta detectado; ejecutando 'radar_quests'")
-        params = dict(self.config.task_defaults_for("radar_quests"))
-        params["skip_daily_limit_check"] = True
-        radar_task.run(ctx, params)
+        previous_task = self.console.current_task() if hasattr(self.console, "current_task") else None
+        if hasattr(self.console, "set_task"):
+            self.console.set_task("radar_quests(auto)")
+        try:
+            self.console.log("[info] Icono de radar con alerta detectado; ejecutando 'radar_quests'")
+            params = dict(self.config.task_defaults_for("radar_quests"))
+            params["skip_daily_limit_check"] = True
+            radar_task.run(ctx, params)
+        finally:
+            if hasattr(self.console, "set_task"):
+                self.console.set_task(previous_task)
         self._radar_trigger_state[ctx.farm.name] = now
         self._ensure_world_screen(ctx.layout, vision, stage="tras radar automático", strict=False)

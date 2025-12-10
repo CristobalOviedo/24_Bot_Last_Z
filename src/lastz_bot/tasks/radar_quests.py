@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -18,6 +19,12 @@ from .utils import tap_back_button, dismiss_overlay_if_present
 
 Coord = Tuple[int, int]
 HandledHelpMission = Tuple[Coord, float]
+
+
+class HelpMissionStatus(Enum):
+    EXECUTED = "executed"
+    NONE_AVAILABLE = "none_available"
+    FAILED = "failed"
 
 
 def _as_list(value: object) -> List[str]:
@@ -301,9 +308,14 @@ class RadarQuestsTask:
                     if not self._ensure_menu_visible(ctx, config):
                         ctx.console.log("[warning] No se pudo recuperar el panel del radar tras fallar la misión especial")
                         break
-            if self._execute_help_missions(ctx, config, handled_help_missions):
+            help_status = self._execute_help_missions(ctx, config, handled_help_missions)
+            if help_status is HelpMissionStatus.EXECUTED:
                 actions = True
                 continue
+            if help_status is HelpMissionStatus.NONE_AVAILABLE:
+                ctx.console.log("[info] Sin misiones de ayuda nuevas; regresando al menú principal del radar")
+                self._close_menu(ctx, config)
+                break
             if not actions:
                 break
             if config.cycle_delay > 0:
@@ -435,7 +447,7 @@ class RadarQuestsTask:
         ctx: TaskContext,
         config: RadarQuestConfig,
         handled_help_missions: List[HandledHelpMission],
-    ) -> bool:
+    ) -> HelpMissionStatus:
         """Itera misiones de ayuda, evitando repetir coordenadas ya atendidas."""
         if (
             not ctx.vision
@@ -443,8 +455,9 @@ class RadarQuestsTask:
             or not config.help_go_button_templates
             or not config.help_button_templates
         ):
-            return False
+            return HelpMissionStatus.NONE_AVAILABLE
         executed_any = False
+        exhausted = False
         while True:
             self._prune_handled_help_missions(handled_help_missions)
             matches = ctx.vision.find_all_templates(
@@ -454,6 +467,7 @@ class RadarQuestsTask:
             )
             mission = self._next_unhandled_help_mission(matches, handled_help_missions)
             if not mission:
+                exhausted = True
                 if matches:
                     ctx.console.log(
                         "[info] Las misiones de ayuda detectadas ya fueron atendidas en este ciclo"
@@ -469,11 +483,13 @@ class RadarQuestsTask:
                     ctx.console.log(
                         "[warning] No se pudo recuperar el panel del radar tras fallar la misión de ayuda"
                     )
-                    break
-                return executed_any
+                    return HelpMissionStatus.FAILED
+                return HelpMissionStatus.EXECUTED if executed_any else HelpMissionStatus.FAILED
             executed_any = True
             handled_help_missions.append((mission_coords, time.monotonic()))
-        return executed_any
+        if executed_any:
+            return HelpMissionStatus.EXECUTED
+        return HelpMissionStatus.NONE_AVAILABLE if exhausted else HelpMissionStatus.FAILED
 
     def _run_help_mission(
         self,
@@ -507,8 +523,10 @@ class RadarQuestsTask:
         ):
             ctx.console.log("[warning] No se detectó el botón de 'ayuda' en el mapa")
             return False
-        if not self._ensure_menu_visible(ctx, config):
-            ctx.console.log("[warning] No se pudo volver al menú del radar tras la misión de ayuda")
+        if not self._return_to_radar_menu(ctx, config):
+            ctx.console.log(
+                "[warning] No se pudo volver al menú del radar tras completar la misión de ayuda"
+            )
             return False
         return True
 
@@ -699,24 +717,53 @@ class RadarQuestsTask:
 
     def _open_menu(self, ctx: TaskContext, config: RadarQuestConfig) -> bool:
         """Intenta primero el icono local y luego el de mapa para mostrar el radar."""
-        if self._tap_first_template(
+        if self._tap_icon_and_wait_for_menu(
             ctx,
+            config,
             config.icon_templates,
             config.icon_threshold,
             config.icon_timeout,
             label="radar-icon",
-            delay=config.tap_delay,
         ):
-            return self._wait_for_menu(ctx, config)
-        if self._tap_first_template(
+            return True
+        if self._tap_icon_and_wait_for_menu(
             ctx,
+            config,
             config.world_icon_templates,
             config.world_icon_threshold,
             config.world_icon_timeout,
             label="radar-world-icon",
+        ):
+            return True
+        return False
+
+    def _tap_icon_and_wait_for_menu(
+        self,
+        ctx: TaskContext,
+        config: RadarQuestConfig,
+        template_paths: Sequence[Path],
+        threshold: float,
+        timeout: float,
+        *,
+        label: str,
+    ) -> bool:
+        if not template_paths or not ctx.vision:
+            return False
+        if not self._tap_first_template(
+            ctx,
+            template_paths,
+            threshold,
+            timeout,
+            label=label,
             delay=config.tap_delay,
         ):
-            return self._wait_for_menu(ctx, config)
+            return False
+        if self._wait_for_menu(ctx, config):
+            return True
+        ctx.console.log(
+            f"[warning] Icono del radar pulsado pero el panel no apareció; se intentará volver con 'back'"
+        )
+        self._press_back_with_fallback(ctx, config, label="radar-open-recovery")
         return False
 
     def _wait_for_menu(self, ctx: TaskContext, config: RadarQuestConfig) -> bool:
@@ -761,12 +808,36 @@ class RadarQuestsTask:
             ctx.device.sleep(delay)
         return True
 
-    def _close_menu(self, ctx: TaskContext, config: RadarQuestConfig) -> None:
-        """Cierra el panel de radar usando el botón back si sigue abierto."""
-        if not self._is_menu_visible(ctx, config):
+    def _close_menu(self, ctx: TaskContext, config: RadarQuestConfig, *, force: bool = False) -> None:
+        """Cierra el panel de radar usando el botón back; puede forzarse aunque no haya header."""
+        if not force and not self._is_menu_visible(ctx, config):
             return
-        if not tap_back_button(ctx, label="radar-exit"):
-            ctx.console.log("[warning] No se detectó el botón 'back' para cerrar el menú del radar")
+        self._press_back_with_fallback(ctx, config, label="radar-exit")
+
+    def _press_back_with_fallback(
+        self,
+        ctx: TaskContext,
+        config: RadarQuestConfig,
+        *,
+        label: str,
+    ) -> None:
+        if tap_back_button(ctx, label=label):
+            if config.tap_delay > 0:
+                ctx.device.sleep(config.tap_delay)
+            return
+        back_coord = ctx.layout.buttons.get("back_button")
+        if back_coord:
+            ctx.console.log(
+                f"[warning] Botón 'back' no detectado por template ({label}); usando coordenada del layout"
+            )
+            ctx.device.tap(back_coord, label=f"{label}-layout")
+        else:
+            ctx.console.log(
+                f"[warning] Botón 'back' no detectado y sin layout; tocando (539, 0) ({label})"
+            )
+            ctx.device.tap((539, 0), label=f"{label}-fallback")
+        if config.tap_delay > 0:
+            ctx.device.sleep(config.tap_delay)
 
     def _current_tracker(self, ctx: TaskContext, task_name: str) -> int:
         """Lee el progreso registrado en el tracker diario para la tarea indicada."""
@@ -790,3 +861,15 @@ class RadarQuestsTask:
             ctx.device.tap((539, 0), label="radar-mission-fallback")
         if config.tap_delay > 0:
             ctx.device.sleep(config.tap_delay)
+
+    def _return_to_radar_menu(self, ctx: TaskContext, config: RadarQuestConfig, attempts: int = 2) -> bool:
+        """Garantiza que el panel del radar vuelva a mostrarse tras usar el mapa."""
+        attempts = max(1, attempts)
+        for attempt in range(attempts):
+            if self._ensure_menu_visible(ctx, config):
+                return True
+            ctx.console.log(
+                f"[info] Radar no visible tras misión; intentando recuperación ({attempt + 1}/{attempts})"
+            )
+            self._recover_from_mission_screen(ctx, config)
+        return self._ensure_menu_visible(ctx, config)

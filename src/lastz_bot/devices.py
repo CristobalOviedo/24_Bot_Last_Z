@@ -22,6 +22,12 @@ class DeviceRecoverableError(RuntimeError):
     """Errores de ADB que requieren reiniciar la rutina."""
 
 
+RECOVERABLE_ADB_RETURN_CODES = {
+    1,
+    0xFFFFFF89,  # 4294967177 -> BlueStacks/HD-Adb intermittent failure while instance is closing
+}
+
+
 class DeviceCaptureError(RuntimeError):
     """Indica que no fue posible obtener una captura desde el dispositivo."""
 
@@ -68,7 +74,7 @@ class DeviceController:
                 f"Comando ADB excedió {effective_timeout:.1f}s incluso tras reconectar"
             ) from exc
         except subprocess.CalledProcessError as exc:
-            if exc.returncode == 1:
+            if exc.returncode in RECOVERABLE_ADB_RETURN_CODES:
                 raise DeviceRecoverableError(
                     f"Comando ADB falló con código {exc.returncode}; posible cierre del juego"
                 ) from exc
@@ -170,6 +176,10 @@ class DeviceController:
             raw_run([self._adb_path, "connect", self.serial], timeout=self.adb.connect_timeout)
         except subprocess.CalledProcessError:
             pass
+        except subprocess.TimeoutExpired:
+            self.console.log(
+                f"[warning] Tiempo de espera agotado al reconectar con {self.serial}; se continuará"
+            )
         time.sleep(0.5)
         try:
             raw_run([
@@ -181,6 +191,10 @@ class DeviceController:
         except subprocess.CalledProcessError:
             self.console.log(
                 f"[warning] No se logró reconectar con {self.serial}; continuará el error"
+            )
+        except subprocess.TimeoutExpired:
+            self.console.log(
+                f"[warning] Esperando {self.serial} excedió {self.adb.connect_timeout:.1f}s; continuará el error"
             )
 
 
