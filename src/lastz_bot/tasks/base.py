@@ -7,7 +7,7 @@ from typing import Any, Dict, Protocol
 
 from rich.console import Console
 
-from ..config import InstanceConfig, LayoutConfig
+from ..config import BotConfig, InstanceConfig, LayoutConfig
 from ..daily_tracker import DailyTaskTracker
 from ..devices import DeviceController
 from ..vision import VisionHelper
@@ -24,6 +24,27 @@ class TaskContext:
     simulate: bool = False
     vision: VisionHelper | None = None
     daily_tracker: DailyTaskTracker | None = None
+    config: BotConfig | None = None
+    pause_cb: callable | None = None
+
+    def live_debug_enabled(self) -> bool:
+        debug_cfg = getattr(self.config, "debug", None) if self.config else None
+        if debug_cfg is None:
+            return True
+        return bool(getattr(debug_cfg, "live_artifacts_enabled", True))
+
+    def troop_debug_enabled(self) -> bool:
+        debug_cfg = getattr(self.config, "debug", None) if self.config else None
+        if debug_cfg is None:
+            return True
+        return bool(getattr(debug_cfg, "troop_snapshots_enabled", True))
+
+    def wait_if_paused(self) -> None:
+        if self.pause_cb:
+            try:
+                self.pause_cb()
+            except Exception:
+                pass
 
 
 class Task(Protocol):

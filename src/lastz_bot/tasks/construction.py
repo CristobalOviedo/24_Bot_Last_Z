@@ -449,6 +449,12 @@ class ConstructionTask:
                 ctx.console.log(
                     "[info] Overlay 'Subir nivel' cerrado; reintentando buscar el botón"
                 )
+                self._refocus_headquarter(
+                    ctx,
+                    config,
+                    "cerrar overlay y retocar edificio requisito",
+                    target_label="el edificio requisito",
+                )
             if config.panel_delay > 0:
                 ctx.device.sleep(min(2.0, config.panel_delay))
 
@@ -516,11 +522,20 @@ class ConstructionTask:
             )
         return overlay_closed
 
-    def _refocus_headquarter(self, ctx: TaskContext, config: ConstructionConfig, reason: str) -> None:
-        """Toca nuevamente el centro de la base tras cerrar overlays que lo cubren."""
+    def _refocus_headquarter(
+        self,
+        ctx: TaskContext,
+        config: ConstructionConfig,
+        reason: str,
+        *,
+        tap: Coord | None = None,
+        target_label: str = "el HQ",
+    ) -> None:
+        """Toca nuevamente el punto indicado tras cerrar overlays que lo cubren."""
 
-        ctx.console.log(f"[info] Reenfocando el HQ tras {reason}")
-        ctx.device.tap(config.hq_tap, label="construction-hq-refocus")
+        tap_point = tap or config.hq_tap
+        ctx.console.log(f"[info] Reenfocando {target_label} tras {reason}")
+        ctx.device.tap(tap_point, label="construction-refocus")
         if config.panel_delay > 0:
             ctx.device.sleep(config.panel_delay)
 
@@ -841,6 +856,8 @@ class ConstructionTask:
     ) -> Path | None:
         """Guarda la pantalla completa y el recorte del temporizador cuando el OCR falla."""
 
+        if not ctx.live_debug_enabled():
+            return None
         try:
             farm_name = ctx.farm.name if ctx.farm else "unknown"
             live_dir = Path("debug_reports") / "live" / farm_name

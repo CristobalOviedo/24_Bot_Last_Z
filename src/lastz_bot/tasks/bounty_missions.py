@@ -304,15 +304,16 @@ class BountyMissionsTask:
                 consecutive_go_failures = 0
                 target_failures.pop(target_key, None)
                 continue
-            if result is MissionResult.HERO_BUSY:
+            # Desde el primer fallo, bloquea esta coordenada para no repetirla.
+            if target not in failed_targets:
                 failed_targets.append(target)
-                target_failures[target_key] = target_failures.get(target_key, 0) + 1
+            target_failures[target_key] = target_failures.get(target_key, 0) + 1
+
+            if result is MissionResult.HERO_BUSY:
                 consecutive_go_failures = 0
                 continue
+
             if result is MissionResult.RETRY:
-                target_failures[target_key] = target_failures.get(target_key, 0) + 1
-                if target_failures[target_key] >= 2:
-                    failed_targets.append(target)
                 consecutive_go_failures += 1
                 if consecutive_go_failures >= max_go_failures:
                     ctx.console.log(

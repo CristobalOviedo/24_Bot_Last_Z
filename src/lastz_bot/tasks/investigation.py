@@ -892,6 +892,8 @@ class InvestigationTask:
     ) -> Path | None:
         if screenshot is None:
             return None
+        if not ctx.live_debug_enabled():
+            return None
         try:
             reason_slug = "".join(ch if ch.isalnum() else "-" for ch in reason.lower()).strip("-") or "unknown"
             if ctx.vision:
@@ -939,6 +941,8 @@ class InvestigationTask:
         matched: bool,
     ) -> None:
         if screenshot is None:
+            return
+        if not ctx.live_debug_enabled():
             return
         try:
             (x1, y1), (x2, y2) = region

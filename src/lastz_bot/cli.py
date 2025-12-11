@@ -62,6 +62,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="Número máximo de granjas a despachar en modo --pending (por defecto infinito)",
     )
+    parser.add_argument(
+        "--pause-key",
+        default="p",
+        help="Tecla para pausar/reanudar sin detener el proceso completo (usa --pause-key '' para desactivar)",
+    )
 
     args = parser.parse_args(argv)
     if args.task and args.routine:
@@ -108,6 +113,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         state_file=Path(args.state_file),
         pending_poll_interval=max(5.0, float(args.pending_poll)),
         pending_max_runs=args.pending_max,
+        pause_key=(args.pause_key or "").strip() or None,
     )
 
     runner = RoutineRunner(config, options)

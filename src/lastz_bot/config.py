@@ -274,6 +274,13 @@ class DailyTaskTrackingConfig(BaseModel):
         return self
 
 
+class DebugOptions(BaseModel):
+    """Permite habilitar o deshabilitar capturas de depuración en disco."""
+
+    live_artifacts_enabled: bool = True
+    troop_snapshots_enabled: bool = True
+
+
 class BotConfig(BaseModel):
     """Configuración raíz del bot, uniendo dispositivos, layouts y rutinas."""
 
@@ -288,6 +295,7 @@ class BotConfig(BaseModel):
     timings: Dict[str, float] = Field(default_factory=dict)
     task_defaults: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     daily_tracking: DailyTaskTrackingConfig | None = None
+    debug: DebugOptions = Field(default_factory=DebugOptions)
 
     @model_validator(mode="before")
     @classmethod

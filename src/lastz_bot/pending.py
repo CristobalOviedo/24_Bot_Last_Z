@@ -8,6 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 
+from .daily_tracker import GATHER_SLOT_TASK_PREFIX
+
 
 @dataclass
 class PendingTaskEntry:
@@ -32,20 +34,38 @@ def load_daily_tasks(path: Path) -> Mapping[str, Any]:
     return raw
 
 
-def collect_pending_tasks(data: Mapping[str, Any]) -> list[PendingTaskEntry]:
-    """Replica el orden mostrado en monitor.py: primero `next_ready`, luego timestamp."""
+def collect_pending_tasks(
+    data: Mapping[str, Any],
+    *,
+    include_future_gather: bool = False,
+) -> list[PendingTaskEntry]:
+    """Replica el orden mostrado en monitor.py: primero `next_ready`, luego timestamp.
+
+    include_future_gather: cuando es True, los gather con next_ready en el futuro
+    se muestran igual (para visibilidad en monitor); el scheduler sigue usando False.
+    """
     pending: list[PendingTaskEntry] = []
+    now = datetime.now()
     for farm_name, tasks in data.items():
         if not isinstance(tasks, MutableMapping):
             continue
         for task_name, entry in tasks.items():
             if not isinstance(entry, MutableMapping):
                 continue
-            if entry.get("completed") is not False:
-                continue
             metadata = entry.get("metadata") if isinstance(entry.get("metadata"), MutableMapping) else {}
             next_ready = parse_datetime(metadata.get("next_ready_at"))
             timestamp = parse_datetime(entry.get("timestamp"))
+
+            is_gather = task_name.startswith(GATHER_SLOT_TASK_PREFIX)
+            if is_gather:
+                if not include_future_gather and next_ready and next_ready > now:
+                    continue
+                # Fuerza estado pendiente aunque no exista flag completed
+                entry = {**entry, "completed": False}
+            else:
+                if entry.get("completed") is not False:
+                    continue
+
             pending.append(
                 PendingTaskEntry(
                     farm=farm_name,

@@ -213,7 +213,7 @@ class FuryLordConfig:
             reward_overlay_brightness_threshold=float(
                 params.get("reward_overlay_brightness_threshold", 0.35)
             ),
-            reward_overlay_tap=as_coord(params.get("reward_overlay_tap"), (270, 440)),
+            reward_overlay_tap=as_coord(params.get("reward_overlay_tap"), (539, 0)),
             reward_overlay_delay=float(params.get("reward_overlay_delay", 2.0)),
         )
 
@@ -974,6 +974,15 @@ class FuryLordTask:
 
     def _return_home(self, ctx: TaskContext, config: FuryLordConfig) -> bool:
         """Busca el botón de regreso a la sede y, si está oculto, limpia overlays antes."""
+        # Si ya estamos en ciudad (world_button visible), no intentes tocar return-base.
+        if self._wait_for_template_group(
+            ctx,
+            config.world_button_templates,
+            label="world-button",
+            timeout=2.0,
+            threshold=config.world_button_threshold,
+        ):
+            return True
         attempts = 0
         max_attempts = 3
         while attempts < max_attempts:
@@ -1105,13 +1114,13 @@ class FuryLordTask:
             delay=config.reward_overlay_delay,
             use_brightness=config.reward_overlay_use_brightness,
             brightness_threshold=config.reward_overlay_brightness_threshold,
-            fallback_tap=config.reward_overlay_tap,
+            fallback_tap=(539, 0),
         )
         if not overlay_closed:
             ctx.console.log(
                 "[warning] No se detectó overlay de recompensas del Fury Lord; se usó tap directo"
             )
-            ctx.device.tap(config.reward_overlay_tap, label="fury-reward-overlay")
+            ctx.device.tap((539, 0), label="fury-reward-overlay")
             if config.reward_overlay_delay > 0:
                 ctx.device.sleep(config.reward_overlay_delay)
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections import deque
+import threading
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Collection, Dict, Iterable, List, Mapping, MutableMapping, Sequence
 import os
@@ -18,6 +19,70 @@ from .farm_console import FarmConsole
 from .debug import DebugReporter, get_debug_reporter
 from .navigation import tap_back_button
 import pytesseract
+
+
+class PauseController:
+    """Escucha una tecla y permite pausar/reanudar la rutina sin matarla."""
+
+    def __init__(self, key: str, console: Console) -> None:
+        self.key = (key or "").lower()
+        self.console = console
+        self._paused = threading.Event()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._available = False
+        self._last_toggle = 0.0
+        self._min_interval = 0.4  # segundos de debounce
+        if not self.key:
+            return
+        try:
+            import msvcrt  # type: ignore
+        except ImportError:
+            self.console.log("[warning] Hotkey de pausa no disponible en esta plataforma")
+            return
+        self._available = True
+
+        def _loop() -> None:
+            while not self._stop.is_set():
+                try:
+                    if msvcrt.kbhit():  # type: ignore[attr-defined]
+                        raw = msvcrt.getch()  # type: ignore[attr-defined]
+                        if not raw:
+                            continue
+                        try:
+                            ch = raw.decode(errors="ignore").lower()
+                        except Exception:
+                            continue
+                        if ch == self.key:
+                            now = time.monotonic()
+                            if now - self._last_toggle < self._min_interval:
+                                continue
+                            self._last_toggle = now
+                            if self._paused.is_set():
+                                self._paused.clear()
+                                self.console.log("[info] Rutina reanudada (hotkey)")
+                            else:
+                                self._paused.set()
+                                self.console.log("[warning] Rutina en pausa (hotkey)")
+                            # Vaciar buffer para no repetir al soltar la tecla
+                            while msvcrt.kbhit():  # type: ignore[attr-defined]
+                                msvcrt.getch()  # type: ignore[attr-defined]
+                except Exception:
+                    # No romper el hilo por errores de lectura de teclado
+                    pass
+                time.sleep(0.1)
+
+        self._thread = threading.Thread(target=_loop, daemon=True)
+        self._thread.start()
+
+    def wait_if_paused(self) -> None:
+        while self._available and self._paused.is_set() and not self._stop.is_set():
+            time.sleep(0.25)
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
 
 
 class RoutineRestartError(RuntimeError):
@@ -52,6 +117,7 @@ class RunnerOptions:
     state_file: Path | None = None
     pending_poll_interval: float = 60.0
     pending_max_runs: int | None = None
+    pause_key: str | None = "p"
 
 
 class RoutineRunner:
@@ -87,6 +153,11 @@ class RoutineRunner:
         self._pending_idle_threshold_hours = max(
             0.0, float(self.config.timing("pending_idle_hours", 8.0))
         )
+        self._pause_controller = (
+            PauseController(options.pause_key, self.console)
+            if options.pause_key
+            else None
+        )
         tracking_cfg = config.daily_tracking
         if (
             tracking_cfg
@@ -111,7 +182,11 @@ class RoutineRunner:
         self._print_farm_summary(farms)
 
         if self.options.pending_scheduler:
-            self._run_pending_scheduler(farms)
+            try:
+                self._run_pending_scheduler(farms)
+            finally:
+                if self._pause_controller:
+                    self._pause_controller.stop()
             return
 
         iteration = 0
@@ -122,6 +197,7 @@ class RoutineRunner:
                     self.console.rule(f"Iteración #{iteration}")
 
                 for farm in farms:
+                    self._pause_if_needed()
                     self._execute_farm(farm)
 
                 if not self.options.loop:
@@ -394,6 +470,19 @@ class RoutineRunner:
         except KeyboardInterrupt:
             self.console.log("[info] Scheduler interrumpido por el usuario")
 
+    def _current_reset_anchor(self) -> datetime | None:
+        """Devuelve el último reset diario configurado, si aplica."""
+
+        tracking_cfg = self.config.daily_tracking
+        if not tracking_cfg or not tracking_cfg.enabled:
+            return None
+        reset_hour = max(0, min(23, int(getattr(tracking_cfg, "reset_hour_local", 0) or 0)))
+        now = datetime.now()
+        anchor = now.replace(hour=reset_hour, minute=0, second=0, microsecond=0)
+        if now < anchor:
+            anchor -= timedelta(days=1)
+        return anchor
+
     def _select_ready_alternative(
         self,
         ready: Sequence[Any],
@@ -482,6 +571,7 @@ class RoutineRunner:
 
     def _collect_farm_last_updates(self, data: Mapping[str, Any]) -> Dict[str, datetime | None]:
         result: Dict[str, datetime | None] = {}
+        anchor = self._current_reset_anchor()
         for farm_name, tasks in data.items():
             if not isinstance(tasks, MutableMapping):
                 continue
@@ -492,10 +582,18 @@ class RoutineRunner:
                 if not isinstance(entry, MutableMapping):
                     continue
                 ts = parse_datetime(entry.get("timestamp"))
-                if ts and (last_update is None or ts > last_update):
+                if not ts:
+                    continue
+                if anchor and ts < anchor:
+                    continue
+                if last_update is None or ts > last_update:
                     last_update = ts
             result[farm_name] = last_update
         return result
+
+    def _pause_if_needed(self) -> None:
+        if self._pause_controller:
+            self._pause_controller.wait_if_paused()
 
     def _run_routine_attempt(
         self,
@@ -554,6 +652,8 @@ class RoutineRunner:
                         simulate=self.options.simulate,
                         vision=vision,
                         daily_tracker=self.daily_tracker,
+                        config=self.config,
+                        pause_cb=self._pause_if_needed,
                     )
 
                     task_index = start_task
@@ -566,6 +666,7 @@ class RoutineRunner:
                     self._maybe_trigger_radar_quests(ctx)
 
                     while task_index < len(routine.tasks):
+                        self._pause_if_needed()
                         spec = routine.tasks[task_index]
                         task = self.registry.get(spec.task)
                         farm_console.set_task(spec.task)

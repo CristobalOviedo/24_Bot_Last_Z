@@ -889,6 +889,7 @@ class GatherCycleTask:
                 (slot.label or slot.slot_id).upper() for slot in active_slots
             )
             ctx.console.log(f"{prefix}Slots ocupados: {labels}")
+            self._ensure_active_gather_recorded(ctx, active_slots)
 
         effective_count = max(active_count, manual_dispatches)
         if effective_count >= config.max_troops:
@@ -897,6 +898,46 @@ class GatherCycleTask:
             )
             return False
         return True
+
+    def _ensure_active_gather_recorded(
+        self,
+        ctx: TaskContext,
+        active_slots: List[TroopSlotStatus],
+    ) -> None:
+        """Marca en el tracker que los slots ya están ocupados si faltan registros."""
+        if not ctx.daily_tracker:
+            return
+        tracker = ctx.daily_tracker
+        farm_name = ctx.farm.name
+        now = datetime.now()
+        fallback_hours = 3.0
+        if ctx.config:
+            try:
+                fallback_hours = float(ctx.config.timing("gather_unknown_eta_hours", 3.0))
+            except Exception:
+                fallback_hours = 3.0
+        eta = now + timedelta(hours=fallback_hours) if fallback_hours > 0 else None
+        for slot in active_slots:
+            task_name = self._gather_task_name(slot)
+            if not task_name:
+                continue
+            current = tracker.current_count(farm_name, task_name, now=now)
+            if current < 1:
+                tracker.set_count(farm_name, task_name, 1, now=now)
+            tracker.set_metadata(
+                farm_name,
+                task_name,
+                "next_ready_at",
+                eta.isoformat() if eta else None,
+                now=now,
+            )
+            tracker.set_metadata(
+                farm_name,
+                task_name,
+                "troop_label",
+                self._slot_display_name(slot),
+                now=now,
+            )
 
     def _count_active_gatherers(
         self,
@@ -957,7 +998,7 @@ class GatherCycleTask:
             ready_value = tracker.get_metadata(farm_name, task_name, "next_ready_at")
             if ready_value is None:
                 continue
-            tracker.set_count(farm_name, task_name, 1)
+            tracker.set_count(farm_name, task_name, 0)
             tracker.set_metadata(farm_name, task_name, "next_ready_at", None)
             tracker.set_metadata(
                 farm_name,
@@ -1095,6 +1136,8 @@ class GatherCycleTask:
         failed_region: TimerRegion | None,
     ) -> Path | None:
         if screenshot is None:
+            return None
+        if not ctx.live_debug_enabled():
             return None
         try:
             reason_slug = "".join(ch if ch.isalnum() else "-" for ch in reason.lower()).strip("-") or "unknown"

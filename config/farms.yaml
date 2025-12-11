@@ -13,11 +13,15 @@ bluestacks:
 instance_warmup_seconds: 0
 game_launch_wait_seconds: 0
 initial_popup_max_attempts: 3
-initial_popup_first_timeout: 120
+initial_popup_first_timeout: 180
 initial_popup_next_timeout: 7
 initial_popup_delay: 2.0
 ready_template_timeout: 15
 ready_template_poll: 1.0
+
+debug:
+  live_artifacts_enabled: false
+  troop_snapshots_enabled: false
 
 daily_tracking:
   enabled: true
@@ -35,9 +39,9 @@ daily_tracking:
     claim_daily_quests: 1
     daily_arena: 1
     investigation: 1
-    gather_slot_a: 1
-    gather_slot_b: 1
-    gather_slot_c: 1
+    gather_slot_a: 0
+    gather_slot_b: 999
+    gather_slot_c: 999
     construction: 1
 
 default_layout: "540p"
@@ -72,8 +76,8 @@ layouts:
         map_resource_wood: [220, 310]
         map_gather: [900, 640]
       caravan:
-        caravan_prev_level: [185, 555]
-        caravan_prev_level_alt: [100, 555]
+        caravan_prev_level: [165, 580]
+        caravan_prev_level_alt: [90, 580]
         caravan_color_red: [200, 850]
         caravan_color_blue: [335, 850]
         caravan_color_yellow: [470, 850]
@@ -83,7 +87,7 @@ layouts:
         caravan_hero_slot_4: [350, 600]
         caravan_hero_slot_5: [450, 600]
         caravan_skip_button: [420, 800]
-        caravan_next_battlefield: [450, 305]
+        caravan_next_battlefield: [465, 475]
     templates:
       common:
         launch_game_icon:
@@ -331,18 +335,24 @@ layouts:
         caravan_field_red:
           - assets/templates/caravan/caravan_field_red.png
           - assets/templates/caravan/caravan_field_red_alt.png
+          - assets/templates/caravan/caravan_field_red_alt2.png
         caravan_field_blue:
           - assets/templates/caravan/caravan_field_blue.png
           - assets/templates/caravan/caravan_field_blue_alt.png
+          - assets/templates/caravan/caravan_field_blue_alt2.png
         caravan_field_yellow:
           - assets/templates/caravan/caravan_field_yellow.png
           - assets/templates/caravan/caravan_field_yellow_alt.png
+          - assets/templates/caravan/caravan_field_yellow_alt2.png
         caravan_field_red_completed:
           - assets/templates/caravan/caravan_field_completed.png
+          - assets/templates/caravan/caravan_field_completed_alt.png
         caravan_field_blue_completed:
           - assets/templates/caravan/caravan_field_completed.png
+          - assets/templates/caravan/caravan_field_completed_alt.png
         caravan_field_yellow_completed:
           - assets/templates/caravan/caravan_field_completed.png
+          - assets/templates/caravan/caravan_field_completed_alt.png
       gather_cycle:
         search_icon:
           - assets/templates/search_icon.png

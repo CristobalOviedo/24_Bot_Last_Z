@@ -124,6 +124,7 @@ def build_dashboard(
     fury_schedule: FurySchedule | None,
 ) -> Layout:
     farm_summaries = collect_farm_summaries(snapshot, reset_anchor, task_limits)
+    # Mostrar gathers futuros también para priorizar reenvíos apenas lleguen.
     pending_tasks = collect_pending_tasks(snapshot)
     pending_tasks.extend(
         collect_fury_pending_tasks(
@@ -389,7 +390,7 @@ class PendingTask:
 
 
 def collect_pending_tasks(snapshot: Snapshot) -> list[PendingTask]:
-    entries = shared_collect_pending_tasks(snapshot.data)
+    entries = shared_collect_pending_tasks(snapshot.data, include_future_gather=True)
     converted: list[PendingTask] = []
     for entry in entries:
         converted.append(

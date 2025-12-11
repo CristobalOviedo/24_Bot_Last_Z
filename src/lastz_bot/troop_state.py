@@ -127,7 +127,8 @@ def detect_troop_states(ctx: TaskContext) -> List[TroopSlotStatus]:
 
     state_templates = _resolve_state_templates(layout, cfg.state_templates, ctx)
     threshold = cfg.detection_threshold
-    debug_regions_enabled = bool(getattr(cfg, "debug_regions_enabled", False))
+    debug_allowed = ctx.troop_debug_enabled()
+    debug_regions_enabled = bool(getattr(cfg, "debug_regions_enabled", False)) and debug_allowed
     slot_regions: List[SlotRegionDebug] = []
 
     states: List[TroopSlotStatus] = []
@@ -189,9 +190,10 @@ def detect_troop_states(ctx: TaskContext) -> List[TroopSlotStatus]:
                 )
             )
     _log_state_summary(ctx, states)
-    need_debug_folder = (
+    snapshots_enabled = ENABLE_TROOP_SNAPSHOT_DEBUG and debug_allowed
+    need_debug_folder = debug_allowed and (
         (debug_regions_enabled and slot_regions)
-        or ENABLE_TROOP_SNAPSHOT_DEBUG
+        or snapshots_enabled
     )
     debug_folder: Path | None = None
     if need_debug_folder:
@@ -203,7 +205,7 @@ def detect_troop_states(ctx: TaskContext) -> List[TroopSlotStatus]:
             captured_at=captured_at,
             folder=debug_folder,
         )
-    if ENABLE_TROOP_SNAPSHOT_DEBUG:
+    if snapshots_enabled:
         _persist_troop_snapshot(
             ctx,
             screenshot,
