@@ -2,23 +2,35 @@
 
 from __future__ import annotations
 
-from collections import deque
+import os
 import threading
+import time
+import re
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Collection, Dict, Iterable, List, Mapping, MutableMapping, Sequence
-import os
-import time
 
+import pytesseract
 from rich.console import Console
 from rich.table import Table
 
 from .config import BotConfig, InstanceConfig, LayoutConfig, RoutineConfig, TaskSpec
-from .farm_console import FarmConsole
 from .debug import DebugReporter, get_debug_reporter
+from .farm_console import FarmConsole
 from .navigation import tap_back_button
-import pytesseract
+from .daily_tracker import DailyTaskTracker, GATHER_SLOT_TASK_PREFIX
+from .devices import (
+    BlueStacksInstanceManager,
+    DeviceController,
+    DeviceCaptureError,
+    DeviceRecoverableError,
+)
+from .tasks import build_registry
+from .tasks.base import TaskContext
+from .vision import VisionHelper
+from .pending import collect_pending_tasks as pending_order, load_daily_tasks, parse_datetime
 
 
 class PauseController:
@@ -76,10 +88,20 @@ class PauseController:
         self._thread.start()
 
     def wait_if_paused(self) -> None:
+        """Ejecuta la logica de `wait_if_paused` dentro del flujo del bot.
+
+        Returns:
+            object: Resultado de la operacion.
+        """
         while self._available and self._paused.is_set() and not self._stop.is_set():
             time.sleep(0.25)
 
     def stop(self) -> None:
+        """Ejecuta la logica de `stop` dentro del flujo del bot.
+
+        Returns:
+            object: Resultado de la operacion.
+        """
         self._stop.set()
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
@@ -88,17 +110,9 @@ class PauseController:
 class RoutineRestartError(RuntimeError):
     """Señala que la rutina debe reiniciarse desde BlueStacks."""
 
-from .daily_tracker import DailyTaskTracker, GATHER_SLOT_TASK_PREFIX
-from .devices import (
-    BlueStacksInstanceManager,
-    DeviceController,
-    DeviceCaptureError,
-    DeviceRecoverableError,
-)
-from .tasks import build_registry
-from .tasks.base import TaskContext
-from .vision import VisionHelper
-from .pending import collect_pending_tasks as pending_order, load_daily_tasks, parse_datetime
+
+class LoadingRestartError(RoutineRestartError):
+    """Señala que se reinició por pantalla de carga persistente."""
 
 
 @dataclass
@@ -118,6 +132,8 @@ class RunnerOptions:
     pending_poll_interval: float = 60.0
     pending_max_runs: int | None = None
     pause_key: str | None = "p"
+    concurrent: bool = False
+    max_workers: int | None = None
 
 
 class RoutineRunner:
@@ -128,6 +144,8 @@ class RoutineRunner:
         self.options = options
         self.console = Console()
         self.registry = build_registry()
+        self._stop_requested = False
+        self._stop_event = threading.Event()
         self._single_task_routine: RoutineConfig | None = None
         if options.single_task:
             try:
@@ -143,6 +161,13 @@ class RoutineRunner:
         self.instance_manager = BlueStacksInstanceManager(
             config.bluestacks, self.console, simulate=options.simulate
         )
+        tracking_cfg = config.daily_tracking
+        self._state_path = Path(
+            options.state_file
+            or (tracking_cfg.storage_path if tracking_cfg and tracking_cfg.storage_path else "state/daily_tasks.json")
+        )
+        # Alias legacy name para compatibilidad con logs previos
+        self.state_dir = self._state_path
         self.daily_tracker: DailyTaskTracker | None = None
         self.debug_reporter: DebugReporter = get_debug_reporter()
         self._truck_trigger_state: Dict[str, float] = {}
@@ -158,7 +183,6 @@ class RoutineRunner:
             if options.pause_key
             else None
         )
-        tracking_cfg = config.daily_tracking
         if (
             tracking_cfg
             and tracking_cfg.enabled
@@ -174,6 +198,9 @@ class RoutineRunner:
 
     def run(self) -> None:
         """Aplica filtros, muestra el resumen y ejecuta cada rutina seleccionada."""
+        # Reset de señales por si hubo una ejecución previa con Ctrl+C
+        self._stop_requested = False
+        self._stop_event.clear()
         farms = self._select_farms()
         if not farms:
             self.console.print("[bold red]No hay granjas para ejecutar")
@@ -189,7 +216,17 @@ class RoutineRunner:
                     self._pause_controller.stop()
             return
 
+        if self.options.concurrent:
+            try:
+                self._run_concurrent(farms)
+            finally:
+                if self._pause_controller:
+                    self._pause_controller.stop()
+            return
+
         iteration = 0
+        loading_restarts = 0
+        max_loading_restarts = 2
         try:
             while True:
                 iteration += 1
@@ -203,7 +240,14 @@ class RoutineRunner:
                 if not self.options.loop:
                     break
         except KeyboardInterrupt:
+            self._stop_requested = True
+            self._stop_event.set()
             self.console.log("[info] Ejecución interrumpida por el usuario")
+        finally:
+            if self._pause_controller:
+                self._pause_controller.stop()
+            if self.options.loop and self._stop_requested:
+                self.console.log("[info] Loop permanente detenido")
 
     def _print_farm_summary(self, farms: Sequence[InstanceConfig]) -> None:
         summary = Table(title="Granjas seleccionadas")
@@ -220,7 +264,50 @@ class RoutineRunner:
             )
         self.console.print(summary)
 
+    def _run_concurrent(self, farms: Sequence[InstanceConfig]) -> None:
+        workers = self.options.max_workers or len(farms)
+        selected = list(farms)[:workers]
+        if not selected:
+            return
+        self.console.log(
+            f"[info] Ejecutando {len(selected)} granjas en paralelo (workers={workers})"
+        )
+
+        threads: list[threading.Thread] = []
+
+        def _target(farm: InstanceConfig) -> None:
+            try:
+                self.console.log(f"[debug] Iniciando hilo para {farm.name}")
+                self._execute_farm(farm)
+            except KeyboardInterrupt:
+                self._stop_event.set()
+            except DeviceRecoverableError as exc:
+                self.console.log(f"[warning] {farm.name}: ejecución interrumpida ({exc})")
+                self._stop_event.set()
+            except Exception as exc:  # pragma: no cover - defensa ante fallos inesperados
+                self.console.log(f"[error] {farm.name}: error no controlado en hilo ({exc})")
+                self._stop_event.set()
+            finally:
+                self.console.log(f"[debug] Hilo de {farm.name} finalizado")
+
+        for farm in selected:
+            t = threading.Thread(target=_target, args=(farm,), daemon=True)
+            threads.append(t)
+            t.start()
+
+        try:
+            for t in threads:
+                t.join()
+        except KeyboardInterrupt:
+            self._stop_event.set()
+            self.console.log("[info] Interrupción recibida; deteniendo hilos concurrentes")
+            for t in threads:
+                t.join(timeout=1.0)
+
     def _execute_farm(self, farm: InstanceConfig) -> None:
+        if self._stop_event.is_set():
+            self.console.log(f"[debug] stop_event activo; se omite {farm.name}")
+            return
         routine_id = self.options.routine_override or farm.routine
         routine = self._single_task_routine or self.config.routine_for(routine_id)
         layout = self.config.layout_for(farm)
@@ -228,6 +315,8 @@ class RoutineRunner:
         next_task_idx = 0
         restart_attempts = 0
         max_restarts = max(0, int(self.config.timing("routine_restart_attempts", 1)))
+        loading_restarts = 0
+        max_loading_restarts = max(0, int(self.config.timing("loading_restart_attempts", 2)))
 
         self.console.rule(f"{farm.name} :: rutina {self._routine_label(farm)}")
         while next_task_idx < total_tasks:
@@ -244,6 +333,17 @@ class RoutineRunner:
                 )
                 break
             except RoutineRestartError as exc:
+                if isinstance(exc, LoadingRestartError):
+                    loading_restarts += 1
+                    if loading_restarts > max_loading_restarts:
+                        self.console.log(
+                            f"[error] {farm.name}: demasiados reinicios por pantalla de carga; se detendrá la granja"
+                        )
+                        break
+                    self.console.log(
+                        f"[warning] {farm.name}: reinicio por pantalla de carga ({loading_restarts}/{max_loading_restarts})"
+                    )
+                    continue
                 folder = self.debug_reporter.persist_failure(
                     farm.name, str(exc)
                 )
@@ -262,19 +362,23 @@ class RoutineRunner:
                 )
                 continue
 
+            if not isinstance(next_task_idx, int):
+                self.console.log(
+                    f"[warning] {farm.name}: índice de tarea inválido ({next_task_idx}); se aborta la rutina"
+                )
+                # No matar instancia; dejar abierta para diagnóstico/reintento manual
+                break
+
             if next_task_idx < total_tasks:
                 self.console.log(
                     f"[warning] {farm.name}: rutina incompleta ({next_task_idx}/{total_tasks} tareas)"
                 )
 
+        # Registrar actividad reciente para evitar re-selección inmediata por inactividad
+        self._record_farm_activity(farm.name)
+
     def _run_pending_scheduler(self, farms: Sequence[InstanceConfig]) -> None:
-        state_path = self.options.state_file
-        if not state_path:
-            default_path = "state/daily_tasks.json"
-            tracking = self.config.daily_tracking
-            if tracking and tracking.storage_path:
-                default_path = tracking.storage_path
-            state_path = Path(default_path)
+        state_path = self._state_path
         poll = max(5.0, float(self.options.pending_poll_interval or 60.0))
         max_runs = self.options.pending_max_runs
         farm_map = {farm.name: farm for farm in farms}
@@ -470,6 +574,20 @@ class RoutineRunner:
         except KeyboardInterrupt:
             self.console.log("[info] Scheduler interrumpido por el usuario")
 
+    def _record_farm_activity(self, farm_name: str) -> None:
+        """Marca actividad reciente para evitar re-selección por inactividad."""
+        try:
+            tracking_cfg = self.config.daily_tracking
+            reset_hour = tracking_cfg.reset_hour_local if tracking_cfg else 23
+            task_limits = tracking_cfg.tracked_tasks if tracking_cfg else {}
+            tracker = DailyTaskTracker(self._state_path, reset_hour, task_limits, self.console)
+            tracker.touch_farm(farm_name)
+            self.console.log(f"[info] {farm_name}: actividad registrada")
+        except Exception as exc:  # pragma: no cover - best-effort persistence
+            self.console.log(
+                f"[warning] {farm_name}: no se pudo registrar la actividad ({exc})"
+            )
+
     def _current_reset_anchor(self) -> datetime | None:
         """Devuelve el último reset diario configurado, si aplica."""
 
@@ -576,6 +694,9 @@ class RoutineRunner:
             if not isinstance(tasks, MutableMapping):
                 continue
             last_update: datetime | None = None
+            last_activity = parse_datetime(tasks.get("__last_activity__", {}).get("timestamp") if isinstance(tasks.get("__last_activity__"), MutableMapping) else None)
+            if last_activity:
+                last_update = last_activity
             for task_name, entry in tasks.items():
                 if task_name.startswith(GATHER_SLOT_TASK_PREFIX):
                     continue
@@ -609,18 +730,29 @@ class RoutineRunner:
             base_console, farm.name, debug_reporter=self.debug_reporter
         )
         previous_manager_console = getattr(self.instance_manager, "console", None)
+        interrupted = False
+        device_fault = False
         try:
             self.console = farm_console
             if previous_manager_console is not None:
                 self.instance_manager.console = farm_console
-            with self.instance_manager.ensure_instance(farm):
-                device = DeviceController(
-                    self.config.adb,
-                    farm.device_port,
-                    self.console,
-                    simulate=self.options.simulate,
-                )
+            self.console.log(
+                f"[debug] Preparando rutina para {farm.name} (tareas={len(routine.tasks)})"
+            )
+            device = DeviceController(
+                self.config.adb,
+                farm.device_port,
+                self.console,
+                simulate=self.options.simulate,
+                stop_event=self._stop_event,
+            )
+            with self.instance_manager.ensure_instance(
+                farm,
+                before_shutdown=lambda: self._close_game_before_instance_shutdown(device),
+            ):
+                self.console.log("[debug] Instancia abierta; esperando dispositivo ADB")
                 device.wait_for_device()
+                self.console.log("[debug] Dispositivo ADB listo; preparando juego")
                 warmup = self.config.timings.get(
                     "instance_warmup_seconds", self.config.instance_warmup_seconds
                 )
@@ -629,6 +761,8 @@ class RoutineRunner:
                         f"Esperando {warmup:.1f}s para que cargue la instancia"
                     )
                     device.sleep(warmup)
+
+                self._ensure_game_package_present(device)
 
                 vision = VisionHelper(
                     device=device,
@@ -639,81 +773,117 @@ class RoutineRunner:
                 device.set_debug_capture(vision.capture_for_debug)
                 self._maybe_launch_game(layout, vision)
 
+                task_index = start_task
+
                 try:
-                    self._dismiss_initial_popups(layout, vision)
+                    try:
+                        # Si ya estamos en pantalla lista, evitar esperar popups largos.
+                        if not self._wait_for_ready(layout, vision, strict=False, timeout_override=2.0):
+                            self._dismiss_initial_popups(layout, vision)
+                        self._wait_for_ready(layout, vision, strict=True)
 
-                    self._wait_for_ready(layout, vision, strict=True)
-
-                    ctx = TaskContext(
-                        device=device,
-                        farm=farm,
-                        layout=layout,
-                        console=self.console,
-                        simulate=self.options.simulate,
-                        vision=vision,
-                        daily_tracker=self.daily_tracker,
-                        config=self.config,
-                        pause_cb=self._pause_if_needed,
-                    )
-
-                    task_index = start_task
-                    if task_index > 0:
-                        self.console.log(
-                            f"Reanudando rutina en la tarea #{task_index + 1}/{len(routine.tasks)}"
+                        ctx = TaskContext(
+                            device=device,
+                            farm=farm,
+                            layout=layout,
+                            console=self.console,
+                            simulate=self.options.simulate,
+                            vision=vision,
+                            daily_tracker=self.daily_tracker,
+                            config=self.config,
+                            pause_cb=self._pause_if_needed,
+                            stop_event=self._stop_event,
                         )
+                        if task_index > 0:
+                            self.console.log(
+                                f"Reanudando rutina en la tarea #{task_index + 1}/{len(routine.tasks)}"
+                            )
 
-                    self._maybe_trigger_trucks(ctx)
-                    self._maybe_trigger_radar_quests(ctx)
+                        self._maybe_trigger_trucks(ctx)
+                        self._maybe_trigger_radar_quests(ctx)
 
-                    while task_index < len(routine.tasks):
-                        self._pause_if_needed()
-                        spec = routine.tasks[task_index]
-                        task = self.registry.get(spec.task)
-                        farm_console.set_task(spec.task)
-                        allow_repeat = getattr(
-                            task, "allow_repeat_after_completion", False
-                        )
-                        should_skip = (
-                            self.daily_tracker
-                            and self.daily_tracker.should_skip(farm.name, spec.task)
-                        )
-                        try:
-                            if should_skip and not allow_repeat:
-                                self.console.log(
-                                    f"[info] '{spec.task}' ya se completó desde el último reset para {farm.name}; saltando"
+                        while task_index < len(routine.tasks):
+                            if self._stop_event.is_set():
+                                break
+                            self._pause_if_needed()
+                            spec = routine.tasks[task_index]
+                            task = self.registry.get(spec.task)
+                            farm_console.set_task(spec.task)
+                            allow_repeat = getattr(
+                                task, "allow_repeat_after_completion", False
+                            )
+                            should_skip = (
+                                self.daily_tracker
+                                and self.daily_tracker.should_skip(farm.name, spec.task)
+                                and not self.options.single_task
+                            )
+                            try:
+                                if should_skip and not allow_repeat:
+                                    self.console.log(
+                                        f"[info] '{spec.task}' ya se completó desde el último reset para {farm.name}; saltando"
+                                    )
+                                    task_index += 1
+                                    continue
+                                self._ensure_world_screen(
+                                    layout,
+                                    vision,
+                                    stage=f"antes de '{spec.task}'",
+                                    strict=True,
                                 )
+                                self._maybe_trigger_trucks(ctx)
+                                self._maybe_trigger_radar_quests(ctx)
+                                self.console.log(f"Ejecutando task '{spec.task}'")
+                                params = self.config.task_defaults_for(spec.task)
+                                if self.options.single_task:
+                                    params["skip_daily_limit_check"] = True
+                                if spec.params:
+                                    params.update(spec.params)
+                                task.run(ctx, params)
+                                if self.daily_tracker and not getattr(task, "manual_daily_logging", False):
+                                    self.daily_tracker.record_progress(farm.name, spec.task)
+                                self._ensure_world_screen(
+                                    layout,
+                                    vision,
+                                    stage=f"después de '{spec.task}'",
+                                    strict=True,
+                                )
+                                self._maybe_trigger_trucks(ctx)
+                                self._maybe_trigger_radar_quests(ctx)
                                 task_index += 1
-                                continue
-                            self._ensure_world_screen(
-                                layout,
-                                vision,
-                                stage=f"antes de '{spec.task}'",
-                                strict=True,
-                            )
-                            self._maybe_trigger_trucks(ctx)
-                            self._maybe_trigger_radar_quests(ctx)
-                            self.console.log(f"Ejecutando task '{spec.task}'")
-                            params = self.config.task_defaults_for(spec.task)
-                            if spec.params:
-                                params.update(spec.params)
-                            task.run(ctx, params)
-                            if self.daily_tracker and not getattr(task, "manual_daily_logging", False):
-                                self.daily_tracker.record_progress(farm.name, spec.task)
-                            self._ensure_world_screen(
-                                layout,
-                                vision,
-                                stage=f"después de '{spec.task}'",
-                                strict=True,
-                            )
-                            self._maybe_trigger_trucks(ctx)
-                            self._maybe_trigger_radar_quests(ctx)
-                            task_index += 1
-                        finally:
-                            farm_console.set_task(None)
+                            finally:
+                                farm_console.set_task(None)
 
-                    return task_index
-                except (DeviceCaptureError, DeviceRecoverableError) as exc:
-                    raise RoutineRestartError(str(exc)) from exc
+                        return task_index
+                    except (DeviceCaptureError, DeviceRecoverableError) as exc:
+                        device_fault = True
+                        raise RoutineRestartError(str(exc)) from exc
+                except RoutineRestartError:
+                    # Reiniciar rutina cerrando y relanzando la app dentro de la misma instancia
+                    if device_fault:
+                        # Si el dispositivo ya falló, no forzar más acciones ADB; abortar intento
+                        raise
+                    try:
+                        self._restart_app_only(layout, vision, device)
+                    except DeviceRecoverableError as exc:
+                        device_fault = True
+                        raise RoutineRestartError(str(exc)) from exc
+                    raise
+                except KeyboardInterrupt:
+                    interrupted = True
+                    self._stop_requested = True
+                    raise
+                finally:
+                    if not (interrupted or self._stop_requested or device_fault):
+                        # Si ya estamos listos, solo intenta recuperación de loading (no alteres el retorno normal)
+                        try:
+                            if self._wait_for_ready(layout, vision, strict=False, timeout_override=2.0):
+                                return task_index
+                        except Exception:
+                            pass
+                        if self._recover_from_loading(layout, vision, device):
+                            raise RoutineRestartError(
+                                "Reapertura del juego tras pantalla de carga"
+                            )
         finally:
             if previous_manager_console is not None:
                 self.instance_manager.console = previous_manager_console
@@ -764,6 +934,16 @@ class RoutineRunner:
         self, layout: LayoutConfig, vision: VisionHelper
     ) -> None:
         """Intenta abrir el juego ya sea por template o coordenada de layout."""
+        # Si ya estamos dentro (world/home listos), no relanzar.
+        if self._wait_for_ready(layout, vision, strict=False, timeout_override=1.5):
+            self.console.log("Juego ya abierto; se omite relanzar")
+            return
+        # Si ya está la pantalla de carga visible, solo confirmar y salir.
+        if self._is_loading_screen(layout, vision):
+            self.console.log("Pantalla de carga ya visible; no se relanza")
+            self._confirm_game_loading(layout, vision)
+            return
+
         if self._launch_game_via_template(layout, vision):
             self._confirm_game_loading(layout, vision)
             self._ensure_game_launched(layout, vision)
@@ -887,6 +1067,312 @@ class RoutineRunner:
             return "game_loading"
         return None
 
+    def _is_loading_screen(self, layout: LayoutConfig, vision: VisionHelper) -> bool:
+        """Detecta si la pantalla de carga/actualización sigue visible."""
+
+        template_name = self._game_loading_template_name(layout)
+        if not template_name:
+            return False
+        try:
+            loading_paths = layout.template_paths(template_name)
+        except KeyError:
+            return False
+        if not loading_paths:
+            return False
+        threshold = self.config.timing("game_loading_detect_threshold", 0.75)
+        result = vision.find_any_template(loading_paths, threshold=threshold)
+        return bool(result)
+
+    def _recover_from_loading(
+        self,
+        layout: LayoutConfig,
+        vision: VisionHelper,
+        device: DeviceController,
+    ) -> bool:
+        """Si está en pantalla de carga, cierra la app, relanza y espera listo."""
+        if self._stop_requested:
+            return False
+        # Si ya estamos en la pantalla principal, no intentar recuperación.
+        try:
+            if self._wait_for_ready(layout, vision, strict=False, timeout_override=2.0):
+                return False
+        except Exception:
+            pass
+        # Si el dispositivo está en fallo (captura previa falló), no insistir.
+        try:
+            vision.device
+        except Exception:
+            return False
+        if self.options.simulate:
+            return False
+        try:
+            if not self._is_loading_screen(layout, vision):
+                return False
+        except DeviceCaptureError:
+            return False
+
+        self.console.log(
+            "[warning] Pantalla de carga detectada; se cerrará y reabrirá el juego en lugar de matar la instancia"
+        )
+        device.press_home()
+        package = getattr(self.config, "game_package", None)
+        if package:
+            device.force_stop_app(package)
+        device.sleep(1.5)
+
+        self._maybe_launch_game(layout, vision)
+        self._confirm_game_loading(layout, vision)
+        # Bucle de recuperación: verificar carga cada 5s y reintentar lanzamiento si desaparece
+        extended_timeout = self.config.timing(
+            "loading_recovery_ready_timeout",
+            self.config.timing("initial_popup_first_timeout", 180),
+        )
+        poll = 5.0
+        start = time.monotonic()
+
+        while time.monotonic() - start <= extended_timeout:
+            try:
+                self._dismiss_initial_popups_quick(layout, vision, timeout=2.5)
+            except Exception as exc:
+                self.console.log(
+                    f"[warning] No se pudieron cerrar popups tras recargar (rápido): {exc}"
+                )
+
+            try:
+                ready = self._wait_for_ready(
+                    layout,
+                    vision,
+                    strict=False,
+                    timeout_override=poll,
+                )
+                if ready:
+                    return True
+            except Exception:
+                pass
+
+            if not self._is_loading_screen(layout, vision):
+                self.console.log(
+                    "[warning] La pantalla de carga desapareció; verificando estado del juego"
+                )
+                # Si ya estamos listos, no relanzar.
+                if self._wait_for_ready(layout, vision, strict=False, timeout_override=2.0):
+                    return True
+                # Si estamos en el escritorio y vemos el icono, relanzar
+                if self._is_home_screen(layout, vision):
+                    self._maybe_launch_game(layout, vision)
+                    self._confirm_game_loading(layout, vision)
+                    continue
+
+                # Si hay captura negra (posible minimize), intenta tocar launch si existe
+                try:
+                    home_icon = self._launch_icon_paths(layout)
+                    if home_icon:
+                        result = vision.find_any_template(
+                            home_icon,
+                            threshold=self.config.timing(
+                                "launch_game_template_threshold", 0.85
+                            ),
+                        )
+                        if result:
+                            coords, matched = result
+                            self.console.log(
+                                f"[warning] Icono '{matched.name}' visible; relanzando"
+                            )
+                            vision.device.tap(coords, label="launch-game-template-retry")
+                            self._confirm_game_loading(layout, vision)
+                            continue
+                except Exception:
+                    pass
+
+                # Si no hay loading ni icono, intentar relanzar igualmente como fallback
+                self.console.log(
+                    "[warning] No se detecta pantalla de carga ni icono; se relanzará el juego"
+                )
+                self._maybe_launch_game(layout, vision)
+                self._confirm_game_loading(layout, vision)
+                continue
+
+            vision.device.sleep(poll)
+
+        raise LoadingRestartError("Reapertura del juego tras pantalla de carga")
+
+    def _restart_app_only(
+        self,
+        layout: LayoutConfig,
+        vision: VisionHelper,
+        device: DeviceController,
+    ) -> None:
+        """Cierra la app y la relanza sin tocar la instancia (uso general en reinicios)."""
+
+        if self.options.simulate:
+            return
+        package = getattr(self.config, "game_package", None)
+        device.press_home()
+        if package:
+            device.force_stop_app(package)
+        device.sleep(1.5)
+        self._maybe_launch_game(layout, vision)
+        self._confirm_game_loading(layout, vision)
+
+    def _close_game_before_instance_shutdown(self, device: DeviceController) -> None:
+        """Cierra la app del juego antes de apagar la instancia."""
+
+        if self.options.simulate:
+            return
+        package = getattr(self.config, "game_package", None)
+        if not package:
+            return
+        try:
+            device.press_home()
+            success = device.force_stop_app(package)
+            if not success:
+                self.console.log(
+                    f"[warning] No se pudo cerrar '{package}' antes de apagar la instancia"
+                )
+        except Exception as exc:
+            self.console.log(
+                f"[warning] Error al cerrar el juego antes de apagar la instancia: {exc}"
+            )
+
+    def _ensure_game_package_present(self, device: DeviceController) -> None:
+        """Valida que el paquete del juego exista y lo reinstala opcionalmente."""
+
+        if self.options.simulate:
+            return
+        package = getattr(self.config, "game_package", None)
+        if not package:
+            return
+        apk_path_raw = getattr(self.config, "game_apk_path", None)
+        auto_reinstall = bool(getattr(self.config, "auto_reinstall_game", False))
+        auto_update = bool(getattr(self.config, "auto_update_game", False))
+
+        if device.package_installed(package):
+            # Si ya está instalado, se puede actualizar en sitio y/o crear respaldo si falta.
+            if auto_update and apk_path_raw:
+                apk_path = Path(apk_path_raw)
+                base_apk = self._resolve_base_apk(apk_path)
+                if base_apk:
+                    installed_vname, _ = device.get_installed_version(package)
+                    apk_vname, _ = device.get_apk_version(base_apk)
+                    if installed_vname and apk_vname:
+                        if self._is_version_older(installed_vname, apk_vname):
+                            self.console.log(
+                                f"[info] Versión instalada {installed_vname} < respaldo {apk_vname}; actualizando sin borrar datos"
+                            )
+                            if apk_path.is_dir():
+                                device.install_apk_bundle(apk_path, package=package)
+                            else:
+                                device.install_apk(apk_path, replace=True)
+                            if device.package_installed(package):
+                                self.console.log("[info] Juego actualizado en sitio")
+                        else:
+                            self.console.log(
+                                f"[info] Versión instalada {installed_vname} ya está al día (respaldo {apk_vname})"
+                            )
+                    else:
+                        self.console.log(
+                            "[info] No se pudo comparar versiones (falta versionName en instalado o respaldo); no se fuerza update"
+                        )
+
+            if auto_reinstall and apk_path_raw:
+                apk_path = Path(apk_path_raw)
+
+                backup_missing = False
+                if apk_path.is_dir():
+                    apk_files = [p for p in apk_path.iterdir() if p.suffix.lower() == ".apk"]
+                    backup_missing = len(apk_files) == 0
+                else:
+                    backup_missing = not apk_path.exists() or apk_path.stat().st_size == 0
+
+                if not backup_missing:
+                    return
+
+                if apk_path.suffix.lower() == ".apk":
+                    self.console.log(
+                        f"[info] APK de respaldo no encontrada; extrayendo base {package} a {apk_path}"
+                    )
+                    device.extract_apk(package, apk_path)
+                else:
+                    self.console.log(
+                        f"[info] Respaldo tipo bundle no encontrado; extrayendo bundle de {package} a {apk_path}"
+                    )
+                    device.extract_apk_bundle(package, apk_path)
+            return
+
+        # Paquete ausente: intentar reinstalar desde respaldo
+        if auto_reinstall and apk_path_raw:
+            apk_path = Path(apk_path_raw)
+            if apk_path.is_dir():
+                apk_files = [p for p in apk_path.iterdir() if p.suffix.lower() == ".apk"]
+                if not apk_files:
+                    self.console.log(
+                        f"[warning] Respaldo de bundle vacío en {apk_path}; extrae desde una instancia sana primero"
+                    )
+                else:
+                    self.console.log(
+                        f"[warning] Paquete '{package}' no encontrado; intentando reinstalar desde bundle {apk_path}"
+                    )
+                    if device.install_apk_bundle(apk_path, package=package):
+                        if device.package_installed(package):
+                            self.console.log("[info] Paquete del juego recuperado tras reinstalación múltiple")
+                            return
+                        self.console.log(
+                            "[warning] El paquete sigue ausente tras reinstalar el bundle; se detendrá la rutina"
+                        )
+            elif apk_path.is_file():
+                self.console.log(
+                    f"[warning] Paquete '{package}' no encontrado; intentando reinstalar desde {apk_path}"
+                )
+                if device.install_apk(apk_path, replace=True):
+                    if device.package_installed(package):
+                        self.console.log("[info] Paquete del juego recuperado tras reinstalación")
+                        return
+                    self.console.log(
+                        "[warning] El paquete sigue ausente tras reinstalar; se detendrá la rutina"
+                    )
+            else:
+                self.console.log(
+                    f"[warning] Respaldo no encontrado en {apk_path}; extrae el APK/bundle desde una instancia sana primero"
+                )
+
+        self.console.log(
+            f"[error] Paquete '{package}' no instalado; reinstala manualmente"
+        )
+        # Se permite el cierre normal de la instancia para no dejar ventanas abiertas
+        raise RoutineRestartError(
+            f"El paquete '{package}' no está instalado; respalda o reinstala la app para continuar"
+        )
+
+    def _resolve_base_apk(self, apk_path: Path) -> Path | None:
+        """Devuelve la ruta al base.apk dentro de un bundle o el archivo en sí."""
+
+        if apk_path.is_file():
+            return apk_path
+        if not apk_path.exists() or not apk_path.is_dir():
+            return None
+        apk_files = [p for p in apk_path.iterdir() if p.suffix.lower() == ".apk"]
+        if not apk_files:
+            return None
+        base = next((p for p in apk_files if "base" in p.name.lower()), None)
+        return base or apk_files[0]
+
+    @staticmethod
+    def _is_version_older(current: str, target: str) -> bool:
+        """Comparación simple de versionName usando componentes numéricos; fallback lexicográfico."""
+
+        def _parts(v: str) -> list[int]:
+            nums = re.split(r"[^0-9]+", v)
+            return [int(n) for n in nums if n.isdigit()]
+
+        cur_parts = _parts(current)
+        tgt_parts = _parts(target)
+        if cur_parts and tgt_parts:
+            length = max(len(cur_parts), len(tgt_parts))
+            cur_parts += [0] * (length - len(cur_parts))
+            tgt_parts += [0] * (length - len(tgt_parts))
+            return cur_parts < tgt_parts
+        return current.strip() < target.strip()
+
     def _confirm_game_loading(self, layout: LayoutConfig, vision: VisionHelper) -> None:
         template_name = self._game_loading_template_name(layout)
         if not template_name:
@@ -935,6 +1421,20 @@ class RoutineRunner:
             "[warning] No se confirmó la pantalla de carga tras lanzar el juego; se continuará"
         )
 
+    def _is_home_screen(self, layout: LayoutConfig, vision: VisionHelper) -> bool:
+        """Detecta el icono del juego en el escritorio para reintentos rápidos."""
+
+        icon_paths = self._launch_icon_paths(layout)
+        if not icon_paths:
+            return False
+        threshold = self.config.timing("launch_game_template_threshold", 0.85)
+        return bool(
+            vision.find_any_template(
+                icon_paths,
+                threshold=threshold,
+            )
+        )
+
     def _dismiss_level_up_overlay(
         self,
         layout: LayoutConfig,
@@ -959,6 +1459,11 @@ class RoutineRunner:
         if "popup_close" not in layout.templates:
             return
 
+        # Si ya estamos listos, no bloquear en popups.
+        if self._wait_for_ready(layout, vision, strict=False, timeout_override=1.5):
+            self.console.log("Pantalla lista detectada; se omite espera de popups")
+            return
+
         level_overlay_paths = self._level_up_overlay_templates(layout)
         template_paths = layout.template_paths("popup_close")
         max_attempts = int(self.config.timing("initial_popup_max_attempts", 5))
@@ -966,18 +1471,39 @@ class RoutineRunner:
         next_timeout = self.config.timing("initial_popup_next_timeout", 5)
         popup_delay = self.config.timing("initial_popup_delay", 1.0)
 
+        def _wait_popup_with_relaunch(total_timeout: float):
+            """Espera por el popup en ventanas cortas y relanza si el juego se minimizó."""
+
+            deadline = time.monotonic() + max(total_timeout, 0.1)
+            slice_timeout = min(10.0, total_timeout)
+            while time.monotonic() < deadline:
+                remaining = deadline - time.monotonic()
+                window = max(0.5, min(slice_timeout, remaining))
+                result = vision.wait_for_any_template(
+                    template_paths,
+                    timeout=window,
+                    poll_interval=1.0,
+                    raise_on_timeout=False,
+                )
+                if result:
+                    return result
+
+                if self._is_home_screen(layout, vision):
+                    self.console.log(
+                        "[warning] El juego parece minimizado/cerrado durante los popups; relanzando"
+                    )
+                    self._maybe_launch_game(layout, vision)
+                    self._confirm_game_loading(layout, vision)
+                    deadline = time.monotonic() + max(total_timeout, 0.1)
+            return None
+
         attempts = 0
         timeout = first_timeout
         while True:
             if max_attempts > 0 and attempts >= max_attempts:
                 break
 
-            result = vision.wait_for_any_template(
-                template_paths,
-                timeout=timeout,
-                poll_interval=1.0,
-                raise_on_timeout=False,
-            )
+            result = _wait_popup_with_relaunch(timeout)
             if not result:
                 if level_overlay_paths and self._dismiss_level_up_overlay(
                     layout, vision, level_overlay_paths
@@ -1000,8 +1526,51 @@ class RoutineRunner:
             attempts += 1
             timeout = next_timeout
 
+    def _dismiss_initial_popups_quick(
+        self,
+        layout: LayoutConfig,
+        vision: VisionHelper,
+        *,
+        timeout: float = 5.0,
+    ) -> bool:
+        """Intento breve de cerrar un popup inicial sin bloquear (una sola vez)."""
+
+        if "popup_close" not in layout.templates:
+            return False
+
+        level_overlay_paths = self._level_up_overlay_templates(layout)
+        template_paths = layout.template_paths("popup_close")
+        popup_delay = self.config.timing("initial_popup_delay", 1.0)
+
+        result = vision.wait_for_any_template(
+            template_paths,
+            timeout=timeout,
+            poll_interval=1.0,
+            raise_on_timeout=False,
+        )
+        if result:
+            self.console.log("Popup detectado (rápido), cerrando")
+            coords, matched_path = result
+            self.console.log(
+                f"Usando template '{matched_path.name}' para cerrar popup inicial"
+            )
+            vision.device.tap(coords, label="initial-popup-close")
+            vision.device.sleep(popup_delay)
+            return True
+
+        if level_overlay_paths and self._dismiss_level_up_overlay(
+            layout, vision, level_overlay_paths
+        ):
+            return True
+        return False
+
     def _wait_for_ready(
-        self, layout: LayoutConfig, vision: VisionHelper, *, strict: bool = False
+        self,
+        layout: LayoutConfig,
+        vision: VisionHelper,
+        *,
+        strict: bool = False,
+        timeout_override: float | None = None,
     ) -> bool:
         """Espera a que aparezcan templates que indican la pantalla lista."""
         template_names = self._ready_template_candidates(layout)
@@ -1024,7 +1593,12 @@ class RoutineRunner:
                 combined_paths.append(path)
                 path_to_name[path] = name
 
-        timeout = max(self.config.timing("ready_template_timeout", 30), 5.0)
+        timeout = max(
+            timeout_override
+            if timeout_override is not None
+            else self.config.timing("ready_template_timeout", 30),
+            5.0,
+        )
         poll = max(self.config.timing("ready_template_poll", 1.0), 0.5)
         start = time.monotonic()
 
@@ -1088,9 +1662,13 @@ class RoutineRunner:
         self.console.log(
             "[warning] Pantalla principal no detectada; presionando 'back_button' para intentar volver"
         )
-        if self._tap_back_button(layout, vision):
-            if self._wait_for_ready(layout, vision, strict=False):
-                return
+        for attempt in (1, 2):
+            if self._tap_back_button(layout, vision):
+                if self._wait_for_ready(layout, vision, strict=False):
+                    return
+                self.console.log(
+                    f"[warning] 'back_button' no devolvió al mapa (intento {attempt}/2); reintentando"
+                )
 
         message = (
             f"Templates {template_names} no aparecieron incluso tras intentar volver con 'back_button'"

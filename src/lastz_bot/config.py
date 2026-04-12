@@ -138,7 +138,11 @@ class LayoutConfig(BaseModel):
             ) from exc
 
     def template_paths(self, template_name: str) -> List[Path]:
-        """Lista las rutas absolutas configuradas para un template."""
+        """Lista las rutas absolutas configuradas para un template.
+
+        Admite patrones con wildcard (p.ej. `assets/foo/bar_* .png`),
+        expandiéndolos con glob para evitar enumerar alt/variantes a mano.
+        """
         try:
             raw_paths = self.templates[template_name]
         except KeyError as exc:
@@ -151,6 +155,14 @@ class LayoutConfig(BaseModel):
             path = Path(raw_path)
             if not path.is_absolute():
                 path = Path.cwd() / path
+
+            # Si incluye wildcard, expandirlo; si no hay matches, conservar literal
+            if any(ch in str(path) for ch in "*?["):
+                matches = sorted(path.parent.glob(path.name)) if path.parent.exists() else []
+                if matches:
+                    resolved.extend(matches)
+                    continue
+
             resolved.append(path)
         return resolved
 
@@ -290,6 +302,10 @@ class BotConfig(BaseModel):
     layouts: Dict[str, LayoutConfig] = Field(default_factory=dict)
     default_layout: str | None = None
     bluestacks: BlueStacksConfig | None = None
+    game_package: str | None = None
+    game_apk_path: str | None = None
+    auto_reinstall_game: bool = False
+    auto_update_game: bool = False
     tesseract_cmd: str | None = None
     instance_warmup_seconds: float = 5.0
     timings: Dict[str, float] = Field(default_factory=dict)

@@ -13,6 +13,7 @@ from .daily_tracker import GATHER_SLOT_TASK_PREFIX
 
 @dataclass
 class PendingTaskEntry:
+    """Modela la responsabilidad de `PendingTaskEntry` en la automatizacion del bot."""
     farm: str
     name: str
     entry: Mapping[str, Any]
@@ -58,6 +59,9 @@ def collect_pending_tasks(
 
             is_gather = task_name.startswith(GATHER_SLOT_TASK_PREFIX)
             if is_gather:
+                # Nunca mostrar gather del slot A
+                if task_name.endswith("_a"):
+                    continue
                 if not include_future_gather and next_ready and next_ready > now:
                     continue
                 # Fuerza estado pendiente aunque no exista flag completed
@@ -85,6 +89,13 @@ def collect_pending_tasks(
 
 
 def parse_datetime(value: Any) -> datetime | None:
+    """Ejecuta la logica de `parse_datetime` dentro del flujo del bot.
+
+    Args:
+        value: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not value:
         return None
     if isinstance(value, datetime):

@@ -145,6 +145,14 @@ class ConstructionConfig:
 
     @staticmethod
     def from_params(ctx: TaskContext, params: Dict[str, object]) -> "ConstructionConfig":
+        """Ejecuta la logica de `from_params` dentro del flujo del bot.
+
+        Args:
+            ctx: Parametro usado por la rutina.
+            params: Parametro usado por la rutina.
+        Returns:
+            object: Resultado de la operacion.
+        """
         layout = ctx.layout
         overlay_tap = None
         if params.get("overlay_dismiss_tap") is not None:
@@ -447,14 +455,9 @@ class ConstructionTask:
             overlay_closed = self._dismiss_level_up_overlay(ctx, config)
             if overlay_closed:
                 ctx.console.log(
-                    "[info] Overlay 'Subir nivel' cerrado; reintentando buscar el botón"
+                    "[info] Overlay 'Subir nivel' cerrado; tocando centro y esperando botón verde"
                 )
-                self._refocus_headquarter(
-                    ctx,
-                    config,
-                    "cerrar overlay y retocar edificio requisito",
-                    target_label="el edificio requisito",
-                )
+                self._tap_center_and_wait_upgrade(ctx, config)
             if config.panel_delay > 0:
                 ctx.device.sleep(min(2.0, config.panel_delay))
 
@@ -462,6 +465,31 @@ class ConstructionTask:
             "[warning] No se encontró el botón 'Mejorar' del edificio requisito tras varios intentos"
         )
         return False
+
+    def _tap_center_and_wait_upgrade(self, ctx: TaskContext, config: ConstructionConfig) -> None:
+        """Tras cerrar overlay, toca el centro y espera a que aparezca el botón verde."""
+
+        resume_tap: Coord = (540, 960)
+        ctx.device.tap(resume_tap, label="construction-overlay-resume")
+        if config.panel_delay > 0:
+            ctx.device.sleep(config.panel_delay)
+        self._wait_upgrade_button_visible(ctx, config)
+
+    def _wait_upgrade_button_visible(self, ctx: TaskContext, config: ConstructionConfig) -> None:
+        """Espera brevemente a que se muestre el botón 'Mejorar' tras retomar foco."""
+
+        if not ctx.vision:
+            return
+        templates = config.requirement_upgrade_templates or config.upgrade_button_templates
+        if not templates:
+            return
+        ctx.vision.wait_for_any_template(
+            templates,
+            timeout=max(2.0, min(6.0, config.button_timeout + config.panel_delay)),
+            poll_interval=0.5,
+            threshold=config.button_threshold,
+            raise_on_timeout=False,
+        )
 
     def _handle_resource_shortage(self, ctx: TaskContext, config: ConstructionConfig) -> None:
         """Resuelve el popup de recursos insuficientes usando rellenado automático."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Dict, Protocol
+import threading
 
 from rich.console import Console
 
@@ -26,20 +27,36 @@ class TaskContext:
     daily_tracker: DailyTaskTracker | None = None
     config: BotConfig | None = None
     pause_cb: callable | None = None
+    stop_event: threading.Event | None = None
 
     def live_debug_enabled(self) -> bool:
+        """Ejecuta la logica de `live_debug_enabled` dentro del flujo del bot.
+
+        Returns:
+            object: Resultado de la operacion.
+        """
         debug_cfg = getattr(self.config, "debug", None) if self.config else None
         if debug_cfg is None:
             return True
         return bool(getattr(debug_cfg, "live_artifacts_enabled", True))
 
     def troop_debug_enabled(self) -> bool:
+        """Ejecuta la logica de `troop_debug_enabled` dentro del flujo del bot.
+
+        Returns:
+            object: Resultado de la operacion.
+        """
         debug_cfg = getattr(self.config, "debug", None) if self.config else None
         if debug_cfg is None:
             return True
         return bool(getattr(debug_cfg, "troop_snapshots_enabled", True))
 
     def wait_if_paused(self) -> None:
+        """Ejecuta la logica de `wait_if_paused` dentro del flujo del bot.
+
+        Returns:
+            object: Resultado de la operacion.
+        """
         if self.pause_cb:
             try:
                 self.pause_cb()
@@ -48,9 +65,18 @@ class TaskContext:
 
 
 class Task(Protocol):
+    """Modela la responsabilidad de `Task` en la automatizacion del bot."""
     name: str
 
     def run(self, ctx: TaskContext, params: Dict[str, Any]) -> None:  # pragma: no cover - interface
+        """Ejecuta la logica de `run` dentro del flujo del bot.
+
+        Args:
+            ctx: Parametro usado por la rutina.
+            params: Parametro usado por la rutina.
+        Returns:
+            object: Resultado de la operacion.
+        """
         ...
 
 

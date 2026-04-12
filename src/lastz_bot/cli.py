@@ -67,6 +67,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="p",
         help="Tecla para pausar/reanudar sin detener el proceso completo (usa --pause-key '' para desactivar)",
     )
+    parser.add_argument(
+        "--concurrent",
+        action="store_true",
+        help="Ejecuta las granjas seleccionadas en paralelo (todas o --workers primeras)",
+    )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Máximo de granjas en paralelo cuando se usa --concurrent (por defecto todas las seleccionadas)",
+    )
 
     args = parser.parse_args(argv)
     if args.task and args.routine:
@@ -81,15 +92,24 @@ def parse_farm_order(farm_arg: str | None, config) -> Sequence[str] | None:
         return None
     # Permite usar índices o nombres, mezcla ambos si es necesario
     names = []
+    invalid_indexes = []
     for item in farm_arg.split(","):
         item = item.strip()
         if item.isdigit():
             idx = int(item)
-            # 1-based index, ajusta si tu YAML usa 0-based
+            # Permite 0 (primer elemento) y mantiene compatibilidad 1-based
+            if idx == 0 and config.instances:
+                names.append(config.instances[0].name)
+                continue
             if 1 <= idx <= len(config.instances):
-                names.append(config.instances[idx-1].name)
-        else:
-            names.append(item)
+                names.append(config.instances[idx - 1].name)
+            else:
+                invalid_indexes.append(idx)
+            continue
+        names.append(item)
+    if invalid_indexes:
+        bad = ", ".join(str(i) for i in invalid_indexes)
+        print(f"[warning] Índices fuera de rango ignorados: {bad}")
     return tuple(names)
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -114,6 +134,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         pending_poll_interval=max(5.0, float(args.pending_poll)),
         pending_max_runs=args.pending_max,
         pause_key=(args.pause_key or "").strip() or None,
+        concurrent=bool(args.concurrent),
+        max_workers=args.workers,
     )
 
     runner = RoutineRunner(config, options)

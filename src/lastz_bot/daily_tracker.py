@@ -26,8 +26,13 @@ class DailyTaskTracker:
         self.console = console
         self.storage_path = storage_path if storage_path.is_absolute() else Path.cwd() / storage_path
         self.reset_hour_local = max(0, min(23, reset_hour_local))
-        self.task_limits = {task.strip(): max(1, limit) for task, limit in task_limits.items() if task.strip()}
+        self.task_limits = {
+            task.strip(): max(1, int(limit))
+            for task, limit in task_limits.items()
+            if task.strip() and int(limit) > 0
+        }
         self._state: Dict[str, Dict[str, Dict[str, Any]]] = self._load_state()
+        self._prune_disabled_tasks()
 
     def should_skip(self, farm_name: str, task_name: str, now: Optional[datetime] = None) -> bool:
         """Indica si una tarea debe saltarse porque ya alcanzó su límite diario."""
@@ -183,6 +188,17 @@ class DailyTaskTracker:
         self._state.clear()
         self._save_state()
 
+    def set_last_activity(self, farm_name: str, now: Optional[datetime] = None) -> None:
+        """Marca la última actividad de la granja para ayudar al scheduler a rotar."""
+        now = now or datetime.now()
+        farm_tasks = self._state.setdefault(farm_name, {})
+        farm_tasks["__last_activity__"] = {"timestamp": now.isoformat()}
+        self._save_state()
+
+    def touch_farm(self, farm_name: str, now: Optional[datetime] = None) -> None:
+        """Marca actividad reciente de la granja (alias explícito)."""
+        self.set_last_activity(farm_name, now=now)
+
     def _current_reset_anchor(self, now: datetime) -> datetime:
         anchor = now.replace(
             hour=self.reset_hour_local,
@@ -294,6 +310,27 @@ class DailyTaskTracker:
             if cleaned:
                 state[str(farm)] = cleaned
         return state
+
+    def _prune_disabled_tasks(self) -> None:
+        """Elimina del estado tareas que ya no están configuradas (p.ej. límite 0)."""
+
+        if not self.task_limits or not self._state:
+            return
+        disabled = set()
+        for farm, tasks in list(self._state.items()):
+            if not isinstance(tasks, dict):
+                continue
+            for task_name in list(tasks.keys()):
+                # Limpieza defensiva: eliminar gathers de slot A aunque no estén en config
+                if task_name == f"{GATHER_SLOT_TASK_PREFIX}a":
+                    disabled.add(task_name)
+                    tasks.pop(task_name, None)
+                    continue
+                if task_name not in self.task_limits:
+                    disabled.add(task_name)
+                    tasks.pop(task_name, None)
+        if disabled:
+            self._save_state()
 
     def _uses_boolean(self, task_name: str) -> bool:
         return self.task_limits.get(task_name, 0) == 1

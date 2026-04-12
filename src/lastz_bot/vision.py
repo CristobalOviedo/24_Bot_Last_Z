@@ -17,6 +17,7 @@ from .debug import DebugReporter, get_debug_reporter
 
 @dataclass
 class VisionHelper:
+    """Modela la responsabilidad de `VisionHelper` en la automatizacion del bot."""
     device: DeviceController
     console: Console
     farm_name: str | None = None

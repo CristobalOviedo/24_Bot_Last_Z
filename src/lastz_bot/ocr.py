@@ -19,7 +19,7 @@ if _TESSERACT_CMD:
     pytesseract.pytesseract.tesseract_cmd = _TESSERACT_CMD
 
 _TIMER_PATTERN = re.compile(
-    r"(?:(?P<days>\d+)\s*d\s*)?(?P<hours>\d{1,2}):(?P<minutes>\d{2}):(?P<seconds>\d{2})"
+    r"(?:(?P<days>\d+)\s*d\s*)?(?P<hours>\d{1,2})\D(?P<minutes>\d{2})\D(?P<seconds>\d{2})"
 )
 _TIMER_OCR_CONFIG = "--psm 7 -c tessedit_char_whitelist=0123456789d:"
 
@@ -38,6 +38,9 @@ def read_timer_from_region(image: np.ndarray, region: Region) -> Optional[timede
         return None
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     variants = _timer_binary_variants(gray)
+
+    # Refuerzo específico para texto blanco sobre fondos grises (gather duration)
+    variants.extend(_white_on_gray_variants(gray))
 
     white_only = _extract_white_text(crop)
     if white_only is not None:
@@ -131,6 +134,58 @@ def _timer_binary_variants(gray: np.ndarray) -> List[np.ndarray]:
     unique: List[np.ndarray] = []
     seen = set()
     for candidate in processed:
+        key = (candidate.shape, int(candidate.sum()))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(candidate)
+    return unique
+
+
+def _white_on_gray_variants(gray: np.ndarray) -> List[np.ndarray]:
+    """Genera variantes agresivas para texto claro sobre fondos grises."""
+
+    boosted = cv2.convertScaleAbs(gray, alpha=2.4, beta=20)
+    normalized = cv2.normalize(boosted, None, 0, 255, cv2.NORM_MINMAX)
+    equalized = cv2.equalizeHist(normalized)
+    blurred = cv2.GaussianBlur(equalized, (3, 3), 0)
+    variants: List[np.ndarray] = []
+
+    def _append(img: np.ndarray, *, include_invert: bool = True) -> None:
+        variants.append(img)
+        if include_invert:
+            variants.append(cv2.bitwise_not(img))
+
+    # Binarios directos altos (texto blanco sobre gris medio)
+    for thresh in (130, 150, 170, 190):
+        _, bin_img = cv2.threshold(equalized, thresh, 255, cv2.THRESH_BINARY)
+        _append(bin_img)
+        _, bin_inv = cv2.threshold(equalized, thresh, 255, cv2.THRESH_BINARY_INV)
+        _append(bin_inv, include_invert=False)
+
+    # Adaptive (por si el panel tiene gradientes)
+    adaptive = cv2.adaptiveThreshold(
+        blurred,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        21,
+        2,
+    )
+    _append(adaptive)
+
+    # Top-hat para resaltar trazos finos blancos
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+    top_hat = cv2.morphologyEx(equalized, cv2.MORPH_TOPHAT, kernel)
+    _append(top_hat)
+
+    # Cierre para unir dígitos cortados
+    closed = cv2.morphologyEx(adaptive, cv2.MORPH_CLOSE, kernel)
+    _append(closed)
+
+    unique: List[np.ndarray] = []
+    seen = set()
+    for candidate in variants:
         key = (candidate.shape, int(candidate.sum()))
         if key in seen:
             continue

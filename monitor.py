@@ -33,6 +33,7 @@ DailyTasks = Dict[str, Dict[str, Dict[str, Any]]]
 
 @dataclass
 class FurySchedule:
+    """Modela la responsabilidad de `FurySchedule` en la automatizacion del bot."""
     hours: list[int]
     window_hours: int
     skip_when_unavailable: bool
@@ -49,6 +50,11 @@ class Snapshot:
 
 
 def parse_args() -> argparse.Namespace:
+    """Ejecuta la logica de `parse_args` dentro del flujo del bot.
+
+    Returns:
+        object: Resultado de la operacion.
+    """
     parser = argparse.ArgumentParser(
         description="Monitoriza daily_tasks.json renderizando una tabla en vivo",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -94,6 +100,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_snapshot(path: Path) -> Snapshot:
+    """Ejecuta la logica de `load_snapshot` dentro del flujo del bot.
+
+    Args:
+        path: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     read_at = datetime.now()
     try:
         with path.open("r", encoding="utf-8") as fh:
@@ -123,6 +136,17 @@ def build_dashboard(
     task_limits: Mapping[str, int],
     fury_schedule: FurySchedule | None,
 ) -> Layout:
+    """Ejecuta la logica de `build_dashboard` dentro del flujo del bot.
+
+    Args:
+        snapshot: Parametro usado por la rutina.
+        source_path: Parametro usado por la rutina.
+        reset_anchor: Parametro usado por la rutina.
+        task_limits: Parametro usado por la rutina.
+        fury_schedule: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     farm_summaries = collect_farm_summaries(snapshot, reset_anchor, task_limits)
     # Mostrar gathers futuros también para priorizar reenvíos apenas lleguen.
     pending_tasks = collect_pending_tasks(snapshot)
@@ -162,6 +186,15 @@ def build_summary_panel(
     farm_summaries: Sequence["FarmSummary"],
     next_reset: datetime,
 ) -> Panel:
+    """Ejecuta la logica de `build_summary_panel` dentro del flujo del bot.
+
+    Args:
+        snapshot: Parametro usado por la rutina.
+        farm_summaries: Parametro usado por la rutina.
+        next_reset: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     farms = len(farm_summaries)
     fury_done = sum(item.fury_done for item in farm_summaries)
     fury_goal = sum(item.fury_limit for item in farm_summaries if item.fury_limit)
@@ -194,12 +227,14 @@ def build_summary_panel(
 
 @dataclass
 class ContinuousTaskStatus:
+    """Modela la responsabilidad de `ContinuousTaskStatus` en la automatizacion del bot."""
     active: bool
     next_ready: datetime | None
 
 
 @dataclass
 class FarmSummary:
+    """Modela la responsabilidad de `FarmSummary` en la automatizacion del bot."""
     name: str
     fury_done: int
     fury_limit: int
@@ -218,6 +253,15 @@ def collect_farm_summaries(
     reset_anchor: datetime,
     task_limits: Mapping[str, int],
 ) -> list[FarmSummary]:
+    """Ejecuta la logica de `collect_farm_summaries` dentro del flujo del bot.
+
+    Args:
+        snapshot: Parametro usado por la rutina.
+        reset_anchor: Parametro usado por la rutina.
+        task_limits: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     summaries: list[FarmSummary] = []
     fury_limit = int(task_limits.get("attack_furylord", 0) or 0)
     rally_limit = int(task_limits.get("rally_boomer", 0) or 0)
@@ -269,6 +313,15 @@ def collect_farm_summaries(
 
 
 def read_counter_entry(entry: Any, reset_anchor: datetime, limit: int) -> int:
+    """Ejecuta la logica de `read_counter_entry` dentro del flujo del bot.
+
+    Args:
+        entry: Parametro usado por la rutina.
+        reset_anchor: Parametro usado por la rutina.
+        limit: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not isinstance(entry, MutableMapping):
         return 0
     if not entry_is_active(entry, reset_anchor):
@@ -283,6 +336,14 @@ def read_counter_entry(entry: Any, reset_anchor: datetime, limit: int) -> int:
 
 
 def read_continuous_status(entry: Any, reset_anchor: datetime) -> ContinuousTaskStatus | None:
+    """Ejecuta la logica de `read_continuous_status` dentro del flujo del bot.
+
+    Args:
+        entry: Parametro usado por la rutina.
+        reset_anchor: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not isinstance(entry, MutableMapping):
         return None
     if not entry_is_active(entry, reset_anchor):
@@ -294,6 +355,14 @@ def read_continuous_status(entry: Any, reset_anchor: datetime) -> ContinuousTask
 
 
 def format_ratio(value: int, total: int | None) -> str:
+    """Ejecuta la logica de `format_ratio` dentro del flujo del bot.
+
+    Args:
+        value: Parametro usado por la rutina.
+        total: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not total:
         if value <= 0:
             return "[dim]—"
@@ -309,6 +378,14 @@ def format_ratio(value: int, total: int | None) -> str:
 
 
 def format_progress(value: int, limit: int) -> str:
+    """Ejecuta la logica de `format_progress` dentro del flujo del bot.
+
+    Args:
+        value: Parametro usado por la rutina.
+        limit: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if limit <= 0:
         if value <= 0:
             return "[dim]—"
@@ -324,6 +401,13 @@ def format_progress(value: int, limit: int) -> str:
 
 
 def format_continuous_status(status: ContinuousTaskStatus | None) -> str:
+    """Ejecuta la logica de `format_continuous_status` dentro del flujo del bot.
+
+    Args:
+        status: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not status:
         return "[dim]—"
     if status.active:
@@ -334,6 +418,13 @@ def format_continuous_status(status: ContinuousTaskStatus | None) -> str:
 
 
 def format_gather_status(summary: FarmSummary) -> str:
+    """Ejecuta la logica de `format_gather_status` dentro del flujo del bot.
+
+    Args:
+        summary: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if summary.gather_total <= 0:
         return "[dim]—"
     if summary.gather_active == 0:
@@ -349,6 +440,13 @@ def format_gather_status(summary: FarmSummary) -> str:
 
 
 def build_farm_overview(farm_summaries: Sequence[FarmSummary]) -> Table:
+    """Ejecuta la logica de `build_farm_overview` dentro del flujo del bot.
+
+    Args:
+        farm_summaries: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     table = Table(
         title="Actividad por granja",
         expand=True,
@@ -379,6 +477,7 @@ def build_farm_overview(farm_summaries: Sequence[FarmSummary]) -> Table:
 
 @dataclass
 class PendingTask:
+    """Modela la responsabilidad de `PendingTask` en la automatizacion del bot."""
     farm: str
     name: str
     entry: Mapping[str, Any]
@@ -390,6 +489,13 @@ class PendingTask:
 
 
 def collect_pending_tasks(snapshot: Snapshot) -> list[PendingTask]:
+    """Ejecuta la logica de `collect_pending_tasks` dentro del flujo del bot.
+
+    Args:
+        snapshot: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     entries = shared_collect_pending_tasks(snapshot.data, include_future_gather=True)
     converted: list[PendingTask] = []
     for entry in entries:
@@ -412,6 +518,16 @@ def collect_fury_pending_tasks(
     task_limits: Mapping[str, int],
     schedule: FurySchedule | None,
 ) -> list[PendingTask]:
+    """Ejecuta la logica de `collect_fury_pending_tasks` dentro del flujo del bot.
+
+    Args:
+        snapshot: Parametro usado por la rutina.
+        reset_anchor: Parametro usado por la rutina.
+        task_limits: Parametro usado por la rutina.
+        schedule: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not schedule or not schedule.hours:
         return []
     limit = int(task_limits.get("attack_furylord", 0) or 0)
@@ -423,8 +539,7 @@ def collect_fury_pending_tasks(
         return []
     reminders: list[PendingTask] = []
     hours_label = format_due_label(due_time, now)
-    window_hours = max(1, schedule.window_hours)
-    detail = f"Ventana {hours_label} ({window_hours}h)"
+    detail = "—"
     for farm_name, tasks in snapshot.data.items():
         if not isinstance(tasks, MutableMapping):
             continue
@@ -434,11 +549,7 @@ def collect_fury_pending_tasks(
             continue
         remaining = max(0, limit - min(count, limit))
         updated = parse_datetime(entry.get("timestamp")) if isinstance(entry, Mapping) else None
-        status = (
-            f"[yellow]⚔️ Ventana en curso ({remaining}/{limit})"
-            if within_window
-            else f"[yellow]⌛ Pendiente ({remaining}/{limit})"
-        )
+        status = "[yellow]Fury"
         reminders.append(
             PendingTask(
                 farm=farm_name,
@@ -446,7 +557,7 @@ def collect_fury_pending_tasks(
                 entry=entry or {},
                 next_ready=due_time,
                 updated=updated,
-                label="Fury Lord",
+                label="Fury",
                 status_override=status,
                 detail_override=detail,
             )
@@ -458,6 +569,14 @@ def compute_fury_due_time(
     reference: datetime,
     schedule: FurySchedule,
 ) -> tuple[datetime | None, bool]:
+    """Ejecuta la logica de `compute_fury_due_time` dentro del flujo del bot.
+
+    Args:
+        reference: Parametro usado por la rutina.
+        schedule: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     hours = sorted({hour % 24 for hour in schedule.hours})
     if not hours:
         return (None, False)
@@ -478,6 +597,14 @@ def compute_fury_due_time(
 
 
 def format_due_label(due_time: datetime, reference: datetime) -> str:
+    """Ejecuta la logica de `format_due_label` dentro del flujo del bot.
+
+    Args:
+        due_time: Parametro usado por la rutina.
+        reference: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if due_time.date() == reference.date():
         return due_time.strftime("%H:%M")
     if due_time.date() == (reference + timedelta(days=1)).date():
@@ -486,18 +613,26 @@ def format_due_label(due_time: datetime, reference: datetime) -> str:
 
 
 def build_pending_table(pending_tasks: Sequence[PendingTask]) -> Table:
+    """Ejecuta la logica de `build_pending_table` dentro del flujo del bot.
+
+    Args:
+        pending_tasks: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     table = Table(
         title="Tareas pendientes",
         expand=True,
-        box=box.ROUNDED,
-        show_lines=True,
+        box=box.SIMPLE,
+        show_lines=False,
+        padding=(0, 0),
     )
-    table.add_column("Granja", style="bold magenta")
-    table.add_column("Tarea", style="bold yellow")
-    table.add_column("Estado", style="bold")
-    table.add_column("Próximo", justify="center", style="bright_cyan")
-    table.add_column("Detalle", style="dim")
-    table.add_column("Actualizado", justify="right", style="cyan")
+    table.add_column("Granja", style="bold magenta", no_wrap=True, max_width=8, overflow="ellipsis")
+    table.add_column("Tarea", style="bold yellow", no_wrap=True, max_width=8, overflow="ellipsis")
+    table.add_column("Estado", style="bold", no_wrap=True, max_width=8, overflow="ellipsis")
+    table.add_column("Próximo", justify="center", style="bright_cyan", no_wrap=True, max_width=8, overflow="ellipsis")
+    table.add_column("Detalle", style="dim", no_wrap=True, max_width=8, overflow="ellipsis")
+    table.add_column("Actualizado", justify="right", style="cyan", no_wrap=True, max_width=10, overflow="ellipsis")
 
     if not pending_tasks:
         table.add_row("—", "—", "[green]Sin pendientes", "—", "", "")
@@ -522,6 +657,14 @@ def build_pending_table(pending_tasks: Sequence[PendingTask]) -> Table:
 
 
 def format_task_label(task_name: str, entry: Mapping[str, Any]) -> str:
+    """Ejecuta la logica de `format_task_label` dentro del flujo del bot.
+
+    Args:
+        task_name: Parametro usado por la rutina.
+        entry: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if task_name.startswith(GATHER_SLOT_TASK_PREFIX):
         metadata = entry.get("metadata") if isinstance(entry.get("metadata"), MutableMapping) else {}
         label = metadata.get("troop_label") if isinstance(metadata, Mapping) else None
@@ -533,6 +676,13 @@ def format_task_label(task_name: str, entry: Mapping[str, Any]) -> str:
 
 
 def format_duration(value: Any) -> str:
+    """Ejecuta la logica de `format_duration` dentro del flujo del bot.
+
+    Args:
+        value: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     try:
         seconds = int(value)
     except (TypeError, ValueError):
@@ -548,6 +698,14 @@ def format_duration(value: Any) -> str:
 
 
 def render_task_entry(task_name: str, entry: Any) -> tuple[str, str, str]:
+    """Ejecuta la logica de `render_task_entry` dentro del flujo del bot.
+
+    Args:
+        task_name: Parametro usado por la rutina.
+        entry: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not isinstance(entry, MutableMapping):
         return ("[red]✖ inválido[/]", "—", "—")
     completed = entry.get("completed")
@@ -585,6 +743,15 @@ def render_task_entry(task_name: str, entry: Any) -> tuple[str, str, str]:
 
 
 def build_footer(snapshot: Snapshot, source_path: Path, next_reset: datetime) -> Panel:
+    """Ejecuta la logica de `build_footer` dentro del flujo del bot.
+
+    Args:
+        snapshot: Parametro usado por la rutina.
+        source_path: Parametro usado por la rutina.
+        next_reset: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     text = Text()
     text.append(f"Fuente: {source_path}", style="bold")
     if snapshot.file_mtime:
@@ -599,6 +766,13 @@ def build_footer(snapshot: Snapshot, source_path: Path, next_reset: datetime) ->
 
 
 def format_time(value: Any) -> str:
+    """Ejecuta la logica de `format_time` dentro del flujo del bot.
+
+    Args:
+        value: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not value:
         return "—"
     if isinstance(value, datetime):
@@ -615,6 +789,13 @@ def format_time(value: Any) -> str:
 
 
 def parse_datetime(value: Any) -> datetime | None:
+    """Ejecuta la logica de `parse_datetime` dentro del flujo del bot.
+
+    Args:
+        value: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not value:
         return None
     if isinstance(value, datetime):
@@ -626,12 +807,27 @@ def parse_datetime(value: Any) -> datetime | None:
 
 
 def format_dt(value: datetime | None) -> str:
+    """Ejecuta la logica de `format_dt` dentro del flujo del bot.
+
+    Args:
+        value: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     if not value:
         return "—"
     return value.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def compute_reset_anchor(reference: datetime | None, reset_hour: int) -> datetime:
+    """Ejecuta la logica de `compute_reset_anchor` dentro del flujo del bot.
+
+    Args:
+        reference: Parametro usado por la rutina.
+        reset_hour: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     reset_hour = max(0, min(23, reset_hour))
     now = reference or datetime.now()
     anchor = now.replace(hour=reset_hour, minute=0, second=0, microsecond=0)
@@ -641,6 +837,14 @@ def compute_reset_anchor(reference: datetime | None, reset_hour: int) -> datetim
 
 
 def entry_is_active(entry: Mapping[str, Any], reset_anchor: datetime) -> bool:
+    """Ejecuta la logica de `entry_is_active` dentro del flujo del bot.
+
+    Args:
+        entry: Parametro usado por la rutina.
+        reset_anchor: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     timestamp = parse_datetime(entry.get("timestamp"))
     if not timestamp:
         return False
@@ -651,6 +855,14 @@ def load_tracking_settings(
     cli_reset_hour: int | None,
     config_path: Path | None,
 ) -> tuple[int, Dict[str, int], FurySchedule | None]:
+    """Ejecuta la logica de `load_tracking_settings` dentro del flujo del bot.
+
+    Args:
+        cli_reset_hour: Parametro usado por la rutina.
+        config_path: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     reset_hour = 23
     task_limits: Dict[str, int] = {}
     fury_schedule: FurySchedule | None = None
@@ -671,6 +883,13 @@ def load_tracking_settings(
 
 
 def extract_fury_schedule(config: Any) -> FurySchedule | None:
+    """Ejecuta la logica de `extract_fury_schedule` dentro del flujo del bot.
+
+    Args:
+        config: Parametro usado por la rutina.
+    Returns:
+        object: Resultado de la operacion.
+    """
     try:
         defaults = config.task_defaults_for("attack_furylord")
     except Exception:
@@ -709,6 +928,11 @@ def extract_fury_schedule(config: Any) -> FurySchedule | None:
 
 
 def main() -> None:
+    """Ejecuta la logica de `main` dentro del flujo del bot.
+
+    Returns:
+        object: Resultado de la operacion.
+    """
     args = parse_args()
     console = Console()
     path = args.file.resolve()

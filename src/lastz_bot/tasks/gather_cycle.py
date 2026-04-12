@@ -38,12 +38,18 @@ GATHER_OCR_RETRY_DELAY = 0.7
 
 @dataclass
 class GatherTimerEstimate:
+    """Modela la responsabilidad de `GatherTimerEstimate` en la automatizacion del bot."""
     gather_duration: timedelta
     travel_duration: timedelta
     captured_at: datetime
 
     @property
     def ready_at(self) -> datetime:
+        """Ejecuta la logica de `ready_at` dentro del flujo del bot.
+
+        Returns:
+            object: Resultado de la operacion.
+        """
         return self.captured_at + self.gather_duration + (self.travel_duration * 2)
 
 
@@ -107,6 +113,13 @@ class GatherConfig:
     def from_params(params: Dict[str, object]) -> "GatherConfig":
         """Convierte parámetros genéricos (YAML/JSON) a un `GatherConfig` tipado."""
         def as_list(value: object) -> List[str]:
+            """Ejecuta la logica de `as_list` dentro del flujo del bot.
+
+            Args:
+                value: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             if value is None:
                 return []
             if isinstance(value, str):
@@ -114,6 +127,14 @@ class GatherConfig:
             return [str(item) for item in value]
 
         def as_coord(value: object, default: Coord) -> Coord:
+            """Ejecuta la logica de `as_coord` dentro del flujo del bot.
+
+            Args:
+                value: Parametro usado por la rutina.
+                default: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             if isinstance(value, (list, tuple)) and len(value) == 2:
                 return int(value[0]), int(value[1])
             return default
@@ -762,6 +783,8 @@ class GatherCycleTask:
         config: GatherConfig,
     ) -> List[TroopSlotStatus]:
         """Limita las tropas seleccionables a un subconjunto preferido."""
+        # Nunca usar la tropa A para gathers.
+        slots = [slot for slot in slots if self._slot_name(slot) != "a"]
         if not config.preferred_idle_slots:
             return slots
         preferred = {
@@ -924,13 +947,17 @@ class GatherCycleTask:
             current = tracker.current_count(farm_name, task_name, now=now)
             if current < 1:
                 tracker.set_count(farm_name, task_name, 1, now=now)
-            tracker.set_metadata(
-                farm_name,
-                task_name,
-                "next_ready_at",
-                eta.isoformat() if eta else None,
-                now=now,
-            )
+            tracker.set_flag(farm_name, task_name, "completed", False, now=now)
+            # No sobreescribir next_ready_at si ya lo fijó el OCR para ese slot
+            existing_ready = tracker.get_metadata(farm_name, task_name, "next_ready_at", now=now)
+            if existing_ready is None:
+                tracker.set_metadata(
+                    farm_name,
+                    task_name,
+                    "next_ready_at",
+                    eta.isoformat() if eta else None,
+                    now=now,
+                )
             tracker.set_metadata(
                 farm_name,
                 task_name,
@@ -1006,6 +1033,7 @@ class GatherCycleTask:
                 "troop_label",
                 self._slot_display_name(slot),
             )
+            tracker.set_flag(farm_name, task_name, "completed", True)
 
     def _register_gather_timer(
         self,
@@ -1020,7 +1048,8 @@ class GatherCycleTask:
             return
         tracker = ctx.daily_tracker
         farm_name = ctx.farm.name
-        tracker.set_count(farm_name, task_name, 0)
+        tracker.set_count(farm_name, task_name, 1)
+        tracker.set_flag(farm_name, task_name, "completed", False)
         tracker.set_metadata(farm_name, task_name, "next_ready_at", timer.ready_at.isoformat())
         tracker.set_metadata(
             farm_name,
@@ -1058,6 +1087,9 @@ class GatherCycleTask:
         slot_key = (slot.label or slot.slot_id or "").strip().lower()
         if not slot_key:
             return None
+        # No trackear ni programar gathers para el slot A
+        if slot_key in {"a", "slot_a"}:
+            return None
         if slot_key.startswith(GATHER_SLOT_TASK_PREFIX):
             normalized = slot_key[len(GATHER_SLOT_TASK_PREFIX) :]
         else:
@@ -1070,11 +1102,13 @@ class GatherCycleTask:
         if not ctx.vision:
             return None
         attempts = 0
+        last_screenshot = None
         while attempts < GATHER_OCR_MAX_ATTEMPTS:
             attempts += 1
             screenshot = ctx.vision.capture()
             if screenshot is None:
                 return None
+            last_screenshot = screenshot
             try:
                 gather_duration = read_timer_from_region(screenshot, GATHER_DURATION_REGION)
                 travel_duration = read_timer_from_region(screenshot, GATHER_TRAVEL_REGION)
@@ -1092,11 +1126,15 @@ class GatherCycleTask:
                 )
                 return None
             if gather_duration and travel_duration:
-                return GatherTimerEstimate(
+                estimate = GatherTimerEstimate(
                     gather_duration=gather_duration,
                     travel_duration=travel_duration,
                     captured_at=datetime.now(),
                 )
+                ctx.console.log(
+                    f"[info] OCR gather detectado: {gather_duration} + travel {travel_duration} (ready {estimate.ready_at.time()})"
+                )
+                return estimate
             capture_paths: List[Path] = []
             if not gather_duration:
                 gather_path = self._record_gather_timer_failure_debug(
@@ -1125,6 +1163,12 @@ class GatherCycleTask:
             )
             if attempts < GATHER_OCR_MAX_ATTEMPTS and ctx.device:
                 ctx.device.sleep(GATHER_OCR_RETRY_DELAY)
+        # Guardar última captura para depurar casos de fondo gris/letras blancas
+        if last_screenshot is not None:
+            self._save_last_gather_debug(ctx, last_screenshot)
+            ctx.console.log("[warning] OCR de gather falló tras todos los intentos; se guardó la última captura para debug")
+        else:
+            ctx.console.log("[warning] OCR de gather falló y no se obtuvo captura")
         return None
 
     def _record_gather_timer_failure_debug(
@@ -1171,6 +1215,19 @@ class GatherCycleTask:
             return full_path
         except Exception:
             return None
+
+    def _save_last_gather_debug(self, ctx: TaskContext, screenshot) -> None:
+        """Guarda la última captura aunque no esté live_debug para revisar OCR."""
+        try:
+            farm_name = ctx.farm.name if ctx.farm else "unknown"
+            live_dir = Path("debug_reports") / "live" / farm_name
+            live_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime("%H%M%S_%f")
+            path = live_dir / f"gather_ocr_last_{timestamp}.png"
+            cv2.imwrite(str(path), screenshot)
+            ctx.console.log(f"[info] Captura de gather guardada para debug: {path}")
+        except Exception:
+            ctx.console.log("[warning] No se pudo guardar la captura de gather para debug")
 
     # --- utilidades ------------------------------------------------------
     def _detect_current_level(
@@ -1370,6 +1427,14 @@ class GatherCycleTask:
     def _closest_coord(self, target: Coord, options: List[Coord]) -> Coord:
         """Devuelve el punto más cercano al target usando distancia Manhattan."""
         def distance(a: Coord, b: Coord) -> int:
+            """Ejecuta la logica de `distance` dentro del flujo del bot.
+
+            Args:
+                a: Parametro usado por la rutina.
+                b: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
         return min(options, key=lambda coord: distance(coord, target))

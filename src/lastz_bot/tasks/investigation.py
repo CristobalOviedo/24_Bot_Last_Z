@@ -1,3 +1,5 @@
+"""Implementa utilidades de `investigation` para el bot Last Z."""
+
 from __future__ import annotations
 
 import time
@@ -78,18 +80,21 @@ def _load_template(path: Path) -> np.ndarray | None:
 
 @dataclass
 class InvestigationNode:
+    """Modela la responsabilidad de `InvestigationNode` en la automatizacion del bot."""
     tap: Coord
     max_region: Region
 
 
 @dataclass
 class InvestigationNodeTemplate:
+    """Modela la responsabilidad de `InvestigationNodeTemplate` en la automatizacion del bot."""
     template: Path
     max_region_offset: Region | None
 
 
 @dataclass
 class InvestigationConfig:
+    """Modela la responsabilidad de `InvestigationConfig` en la automatizacion del bot."""
     icon_templates: Sequence[Path]
     panel_templates: Sequence[Path]
     free_button_templates: Sequence[Path]
@@ -138,9 +143,24 @@ class InvestigationConfig:
 
     @staticmethod
     def from_params(ctx: TaskContext, params: Dict[str, Any]) -> "InvestigationConfig":
+        """Ejecuta la logica de `from_params` dentro del flujo del bot.
+
+        Args:
+            ctx: Parametro usado por la rutina.
+            params: Parametro usado por la rutina.
+        Returns:
+            object: Resultado de la operacion.
+        """
         layout = ctx.layout
 
         def resolve(names: Sequence[str]) -> List[Path]:
+            """Ejecuta la logica de `resolve` dentro del flujo del bot.
+
+            Args:
+                names: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             paths: List[Path] = []
             for name in names:
                 if not name:
@@ -270,10 +290,20 @@ class InvestigationConfig:
 
 
 class InvestigationTask:
+    """Modela la responsabilidad de `InvestigationTask` en la automatizacion del bot."""
     name = "investigation"
     manual_daily_logging = True
+    _max_timer_span = timedelta(days=30)
 
     def run(self, ctx: TaskContext, params: Dict[str, Any]) -> None:  # type: ignore[override]
+        """Ejecuta la logica de `run` dentro del flujo del bot.
+
+        Args:
+            ctx: Parametro usado por la rutina.
+            params: Parametro usado por la rutina.
+        Returns:
+            object: Resultado de la operacion.
+        """
         if not ctx.vision:
             ctx.console.log("[warning] VisionHelper no disponible; investigation requiere detecciones")
             return
@@ -286,10 +316,16 @@ class InvestigationTask:
         now = datetime.now()
         if next_ready and next_ready > now:
             remaining = next_ready - now
-            ctx.console.log(
-                f"[info] Investigación lista en {remaining}; se volverá a intentar después"
-            )
-            return
+            if remaining > self._max_timer_span:
+                ctx.console.log(
+                    "[warning] Temporizador de investigación irreal (>30 días); se limpiará y se reintentará leer"
+                )
+                self._clear_ready_metadata(ctx, config)
+            else:
+                ctx.console.log(
+                    f"[info] Investigación lista en {remaining}; se volverá a intentar después"
+                )
+                return
 
         panel_ready, saw_recommended, auto_recommended = self._ensure_panel_ready(ctx, config)
         if not panel_ready:
@@ -297,9 +333,9 @@ class InvestigationTask:
             return
 
         if auto_recommended:
-            self._mark_investigation_completed(ctx, config, reason="panel recomendado se abrió automáticamente")
-            self._close_panel(ctx, config)
-            return
+            ctx.console.log(
+                "[info] Panel recomendado se abrió automáticamente; se asumirá investigación terminada y se iniciará una nueva"
+            )
 
         handled = False
         started_new_research = False
@@ -420,7 +456,16 @@ class InvestigationTask:
             ctx.device.sleep(config.panel_delay)
         if not self._select_node_and_start(ctx, config):
             return False
-        self._press_help_and_exit(ctx, config)
+        if self._check_badge_shortage_after_invest(ctx, config):
+            return False
+        if self._has_template(ctx, config.help_button_templates, config.button_threshold):
+            self._press_help_and_exit(ctx, config)
+        else:
+            ctx.console.log(
+                "[warning] Botón de ayuda no visible tras 'Investigar'; se asume falta de badges y se sale"
+            )
+            self._handle_badge_shortage(ctx, config)
+            return False
         return True
 
     def _open_panel(self, ctx: TaskContext, config: InvestigationConfig) -> bool:
@@ -461,15 +506,45 @@ class InvestigationTask:
 
 
     def _close_panel(self, ctx: TaskContext, config: InvestigationConfig) -> None:
-        if ctx.vision and not self._is_main_panel_visible(ctx, config):
-            ctx.console.log("[debug] Panel de investigación ya está cerrado; se omite 'back'")
-            return
+        if ctx.vision:
+            if self._is_recommended_panel_visible(ctx, config):
+                ctx.console.log("[info] Panel recomendado activo al cerrar; saliendo")
+                self._exit_recommended_panel(ctx, config)
+                return
+            if self._detect_badge_store(ctx, config):
+                ctx.console.log("[info] Tienda de badges detectada al cerrar; aplicando salida de falta de badges")
+                self._handle_badge_shortage(ctx, config)
+                return
+            if not self._is_main_panel_visible(ctx, config):
+                ctx.console.log("[debug] Panel de investigación no visible; intentando salir con múltiples 'back'")
+                self._exit_to_main_panel(ctx, config, attempts=4)
+                return
         self._press_back_button(
             ctx,
             config,
             label="research-exit",
             fallback_message="[info] Botón 'Back' no disponible; usando coordenada fallback para salir",
         )
+        self._exit_to_main_panel(ctx, config, attempts=2)
+
+    def _exit_to_main_panel(
+        self,
+        ctx: TaskContext,
+        config: InvestigationConfig,
+        *,
+        attempts: int,
+    ) -> None:
+        if not ctx.vision or attempts <= 0:
+            return
+        for idx in range(1, attempts + 1):
+            if self._is_main_panel_visible(ctx, config):
+                return
+            self._press_back_button(
+                ctx,
+                config,
+                label=f"research-exit-{idx}",
+                fallback_message="[info] Botón 'Back' no disponible; usando coordenada fallback para salir",
+            )
 
     def _press_back_button(
         self,
@@ -534,6 +609,20 @@ class InvestigationTask:
             remaining,
             include_help=apply_help_reduction,
         )
+        if adjusted_remaining <= timedelta(seconds=0) or adjusted_remaining > self._max_timer_span:
+            failure_path = self._record_timer_failure_debug(
+                ctx,
+                screenshot,
+                config,
+                reason="timer-out-of-range",
+            )
+            if failure_path:
+                ctx.console.log(f"[debug] Captura de temporizador guardada en {failure_path}")
+            ctx.console.log(
+                "[warning] Temporizador de investigación fuera de rango (<=0 o >30 días); no se almacena y se reintentará en la próxima pasada"
+            )
+            self._clear_ready_metadata(ctx, config)
+            return False
         ready_at = datetime.now() + adjusted_remaining
         self._store_ready_at(
             ctx,
@@ -713,7 +802,14 @@ class InvestigationTask:
             ctx.device.sleep(config.panel_delay)
         if not self._select_node_and_start(ctx, config):
             return False
-        self._press_help_and_exit(ctx, config)
+        if self._has_template(ctx, config.help_button_templates, config.button_threshold):
+            self._press_help_and_exit(ctx, config)
+        else:
+            ctx.console.log(
+                "[warning] Botón de ayuda no visible tras 'Investigar'; se asume falta de badges y se sale"
+            )
+            self._handle_badge_shortage(ctx, config)
+            return False
         return True
 
     def _select_node_and_start(self, ctx: TaskContext, config: InvestigationConfig) -> bool:
@@ -728,6 +824,22 @@ class InvestigationTask:
         if config.nodes:
             return self._select_node_with_coords(ctx, config, screenshot)
         ctx.console.log("[warning] No hay nodos configurados para investigación")
+        return False
+
+    def _check_badge_shortage_after_invest(self, ctx: TaskContext, config: InvestigationConfig) -> bool:
+        """Tras pulsar Invest, espera breve por la tienda de badges y corta con la salida de 4 backs si aparece."""
+        if not ctx.vision or not config.badge_store_templates:
+            return False
+        result = ctx.vision.wait_for_any_template(
+            config.badge_store_templates,
+            timeout=max(1.5, min(3.0, config.button_timeout)),
+            poll_interval=0.4,
+            threshold=config.badge_store_threshold,
+            raise_on_timeout=False,
+        )
+        if result:
+            self._handle_badge_shortage(ctx, config)
+            return True
         return False
 
     def _select_node_with_coords(
@@ -754,6 +866,8 @@ class InvestigationTask:
             if config.tap_delay > 0:
                 ctx.device.sleep(config.tap_delay)
             if self._handle_resource_requirements(ctx, config):
+                if self._check_badge_shortage_after_invest(ctx, config):
+                    return False
                 return True
             return False
         ctx.console.log("[warning] No se encontró un nodo disponible (todos MAX)")
@@ -792,9 +906,27 @@ class InvestigationTask:
             if config.tap_delay > 0:
                 ctx.device.sleep(config.tap_delay)
             if self._handle_resource_requirements(ctx, config):
+                if self._check_badge_shortage_after_invest(ctx, config):
+                    return False
                 return True
             return False
         ctx.console.log("[warning] Todos los nodos detectados están en MAX")
+        return False
+
+    def _check_badge_shortage_after_invest(self, ctx: TaskContext, config: InvestigationConfig) -> bool:
+        """Tras pulsar Invest, espera breve por la tienda de badges y corta con la salida de 4 backs si aparece."""
+        if not ctx.vision or not config.badge_store_templates:
+            return False
+        result = ctx.vision.wait_for_any_template(
+            config.badge_store_templates,
+            timeout=max(1.5, min(3.0, config.button_timeout)),
+            poll_interval=0.4,
+            threshold=config.badge_store_threshold,
+            raise_on_timeout=False,
+        )
+        if result:
+            self._handle_badge_shortage(ctx, config)
+            return True
         return False
 
     def _detect_node_templates(
@@ -1220,6 +1352,18 @@ class InvestigationTask:
             config,
             label="badge-shortage-exit-2",
             fallback_message="[info] Segundo intento de salir tras falta de badges; usando fallback",
+        )
+        self._press_back_button(
+            ctx,
+            config,
+            label="badge-shortage-exit-3",
+            fallback_message="[info] Tercer intento de salir tras falta de badges; usando fallback",
+        )
+        self._press_back_button(
+            ctx,
+            config,
+            label="badge-shortage-exit-4",
+            fallback_message="[info] Cuarto intento de salir tras falta de badges; usando fallback",
         )
         self._schedule_badge_cooldown(ctx, config)
 

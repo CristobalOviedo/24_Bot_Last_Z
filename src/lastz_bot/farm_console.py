@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 from rich.console import Console
 from rich.text import Text
 
@@ -10,6 +12,10 @@ from .debug import get_debug_reporter, DebugReporter
 
 class FarmConsole:
     """Envuelve una consola Rich para prefijar mensajes y guardarlos en debug."""
+
+    # Serializa la escritura en la consola compartida para evitar intercalados
+    # cuando múltiples granjas escriben en paralelo.
+    _lock = threading.Lock()
 
     def __init__(self, console: Console, farm_name: str, *, debug_reporter: DebugReporter | None = None) -> None:
         self._console = console
@@ -20,13 +26,15 @@ class FarmConsole:
     def log(self, *objects, **kwargs) -> None:  # type: ignore[override]
         """Replica ``Console.log`` agregando prefijo y registro persistente."""
         prefix = self._build_prefix()
-        self._console.log(prefix, *objects, **kwargs)
+        with self._lock:
+            self._console.log(prefix, *objects, **kwargs)
         self._record(objects)
 
     def print(self, *objects, **kwargs) -> None:  # type: ignore[override]
         """Replica ``Console.print`` con el mismo prefijo y seguimiento."""
         prefix = self._build_prefix()
-        self._console.print(prefix, *objects, **kwargs)
+        with self._lock:
+            self._console.print(prefix, *objects, **kwargs)
         self._record(objects)
 
     def __getattr__(self, name: str):

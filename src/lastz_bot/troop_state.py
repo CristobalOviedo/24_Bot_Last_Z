@@ -36,6 +36,13 @@ class TroopActivity(str, Enum):
 
     @classmethod
     def from_key(cls, value: str) -> "TroopActivity":
+        """Ejecuta la logica de `from_key` dentro del flujo del bot.
+
+        Args:
+            value: Parametro usado por la rutina.
+        Returns:
+            object: Resultado de la operacion.
+        """
         normalized = value.strip().lower()
         alias_map = {
             "idle": cls.IDLE,

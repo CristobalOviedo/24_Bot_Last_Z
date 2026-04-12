@@ -7,13 +7,18 @@ adb:
 bluestacks:
   player_path: "C:/Program Files/BlueStacks_nxt/HD-Player.exe"
   instance_cli: "C:/Program Files/BlueStacks_nxt/HD-MultiInstanceManager.exe"
-  start_timeout: 45
+  start_timeout: 20
   shutdown_timeout: 10
+
+game_package: "com.readygo.barrel.gp"
+game_apk_path: "D:/installs/LastZ_bundle"   # directorio: se guardará base+splits extraídos para reinstalar
+auto_reinstall_game: true
+auto_update_game: true
 
 instance_warmup_seconds: 0
 game_launch_wait_seconds: 0
 initial_popup_max_attempts: 3
-initial_popup_first_timeout: 180
+initial_popup_first_timeout: 240
 initial_popup_next_timeout: 7
 initial_popup_delay: 2.0
 ready_template_timeout: 15
@@ -39,6 +44,7 @@ daily_tracking:
     claim_daily_quests: 1
     daily_arena: 1
     investigation: 1
+    alliance_donation: 3
     gather_slot_a: 0
     gather_slot_b: 999
     gather_slot_c: 999
@@ -93,31 +99,21 @@ layouts:
         launch_game_icon:
           - assets/templates/launch_game_icon.png
         popup_close:
-          - assets/templates/popup_close.png
-          - assets/templates/popup_close_alt.png
-          - assets/templates/popup_close_alt2.png
-          - assets/templates/popup_close_alt3.png
-          - assets/templates/popup_close_alt4.png
+          - assets/templates/popup_close*.png
         game_loading_screen:
-          - assets/templates/game_loading_screen.png
+          - assets/templates/game_loading_screen*.png
+
         level_up_overlay:
           - assets/templates/level_up_overlay.png
         back_button_icon:
           - assets/templates/back_button.png
         world_button: assets/templates/world_button.png
         idle_troop_sleep:
-          - assets/templates/idle_troop_sleep.png
-          - assets/templates/idle_troop_sleep_alt.png
-          - assets/templates/idle_troop_sleep_alt2.png
-          - assets/templates/idle_troop_sleep_alt3.png
-          - assets/templates/idle_troop_sleep_alt4.png
-          - assets/templates/idle_troop_sleep_alt5.png
-          - assets/templates/idle_troop_sleep_alt6.png
+          - assets/templates/idle_troop_sleep*.png
         event_center_button:
           - assets/templates/event_center_button.png
         march_button:
-          - assets/templates/march_button.png
-          - assets/templates/march_button_alt.png
+          - assets/templates/march_button*.png
         sede_button:
           - assets/templates/sede_button.png
         troop_empty:
@@ -130,10 +126,18 @@ layouts:
           - assets/templates/vip_reward_overlay.png
         vip_bonus_overlay:
           - assets/templates/vip_bonus_overlay.png
+      alliance_donation:
+        alliance_icon:
+          - assets/templates/alliance/alliance_icon.png
+        alliance_tech_button:
+          - assets/templates/alliance/alliance_tech_button.png
+        alliance_recommended_button:
+          - assets/templates/alliance/alliance_recommended_button*.png
+        alliance_donate_button:
+          - assets/templates/alliance/alliance_donate_button.png
       attack_furylord:
         furylord_icon:
-          - assets/templates/furylord/furylord_icon.png
-          - assets/templates/furylord/furylord_icon_alt.png
+          - assets/templates/furylord/furylord_icon*.png
         furylord_go_button:
           - assets/templates/furylord/furylord_go_button.png
         furylord_attack_button:
@@ -202,6 +206,17 @@ layouts:
           - assets/templates/bounty/bounty_hero_busy.png
         bounty_mission_badge:
           - assets/templates/bounty/bounty_mission_badge.png
+        bounty_go_bad_text:
+          - assets/templates/bounty/bounty_go_bad_text.png
+      treasure_excavation:
+        treasure_icon:
+          - assets/templates/treasure/treasure_icon.png
+        treasure_dug_button:
+          - assets/templates/treasure/treasure_dug_button.png
+        treasure_chest:
+          - assets/templates/treasure/treasure_chest.png
+        treasure_reward_overlay:
+          - assets/templates/treasure/treasure_reward_overlay.png
       radar_quests:
         radar_icon:
           - assets/templates/radar_quests/radar_icon.png
@@ -213,6 +228,8 @@ layouts:
           - assets/templates/radar_quests/radar_menu_header.png
         radar_claim_button:
           - assets/templates/radar_quests/radar_claim_button.png
+        radar_treasure_icon:
+          - assets/templates/radar_quests/radar_treasure_icon.png
         radar_laura_button:
           - assets/templates/radar_quests/radar_laura_button.png
         radar_special_mission_icon:
@@ -222,10 +239,7 @@ layouts:
         radar_attack_button:
           - assets/templates/radar_quests/radar_attack_button.png
         radar_help_mission_icon:
-          - assets/templates/radar_quests/radar_help_mission_icon.png
-          - assets/templates/radar_quests/radar_help_mission_icon_alt.png
-          - assets/templates/radar_quests/radar_help_mission_icon_alt2.png
-          - assets/templates/radar_quests/radar_help_mission_icon_alt3.png
+          - assets/templates/radar_quests/radar_help_mission_icon*.png
         radar_help_button:
           - assets/templates/radar_quests/radar_help_button.png
       construction:
@@ -271,13 +285,11 @@ layouts:
         research_help_button:
           - assets/templates/investigation/research_help_button.png
         research_max_label:
-          - assets/templates/investigation/research_max_label.png
-          - assets/templates/investigation/research_max_label_alt.png
+          - assets/templates/investigation/research_max_label*.png
         research_resource_panel:
           - assets/templates/investigation/research_resource_panel.png
         research_power_crate:
-          - assets/templates/investigation/research_power_crate.png
-          - assets/templates/investigation/research_power_crate_alt.png
+          - assets/templates/investigation/research_power_crate*.png
         research_use_button:
           - assets/templates/investigation/research_use_button.png
         research_batch_button:
@@ -289,17 +301,7 @@ layouts:
         research_recommended_back:
           - assets/templates/investigation/research_recommended_back.png
         research_node_templates:
-          - assets/templates/investigation/AR/research_node_1.png
-          - assets/templates/investigation/AR/research_node_2.png
-          - assets/templates/investigation/AR/research_node_3.png
-          - assets/templates/investigation/AR/research_node_4.png
-          - assets/templates/investigation/AR/research_node_5.png
-          - assets/templates/investigation/AR/research_node_6.png
-          - assets/templates/investigation/AR/research_node_7.png
-          - assets/templates/investigation/AR/research_node_8.png
-          - assets/templates/investigation/AR/research_node_9.png
-          - assets/templates/investigation/AR/research_node_10.png
-          - assets/templates/investigation/AR/research_node_11.png
+          - assets/templates/investigation/AR/research_node*.png
         research_free_button:
           - assets/templates/investigation/research_free_button.png
       heal_troops:
@@ -308,17 +310,14 @@ layouts:
         healing_icon_handshake:
           - assets/templates/healing_icon_handshake.png
         healing_icon_troops:
-          - assets/templates/healing_icon_troops.png
-          - assets/templates/healing_icon_troops_alt.png
-          - assets/templates/healing_icon_troops_alt2.png
+          - assets/templates/healing_icon_troops*.png
         healing_button:
           - assets/templates/healing_button.png
       caravan:
         caravan_icon:
           - assets/templates/caravan/caravan_icon.png
         caravan_start_button:
-          - assets/templates/caravan/caravan_start_button.png
-          - assets/templates/caravan/caravan_start_button_alt.png
+          - assets/templates/caravan/caravan_start_button*.png
         caravan_warning:
           - assets/templates/caravan/caravan_warning.png
         caravan_warning_accept:
@@ -328,34 +327,24 @@ layouts:
         caravan_combat_button2:
           - assets/templates/caravan/caravan_combat_button2.png
         caravan_continue:
-          - assets/templates/caravan/caravan_continue.png
-          - assets/templates/caravan/caravan_continue_alt.png
+          - assets/templates/caravan/caravan_continue*.png
         caravan_battle_ready:
           - assets/templates/caravan/caravan_battle_ready.png
         caravan_field_red:
-          - assets/templates/caravan/caravan_field_red.png
-          - assets/templates/caravan/caravan_field_red_alt.png
-          - assets/templates/caravan/caravan_field_red_alt2.png
+          - assets/templates/caravan/caravan_field_red*.png
         caravan_field_blue:
-          - assets/templates/caravan/caravan_field_blue.png
-          - assets/templates/caravan/caravan_field_blue_alt.png
-          - assets/templates/caravan/caravan_field_blue_alt2.png
+          - assets/templates/caravan/caravan_field_blue*.png
         caravan_field_yellow:
-          - assets/templates/caravan/caravan_field_yellow.png
-          - assets/templates/caravan/caravan_field_yellow_alt.png
-          - assets/templates/caravan/caravan_field_yellow_alt2.png
+          - assets/templates/caravan/caravan_field_yellow*.png
         caravan_field_red_completed:
-          - assets/templates/caravan/caravan_field_completed.png
-          - assets/templates/caravan/caravan_field_completed_alt.png
+          - assets/templates/caravan/caravan_field_completed*.png
         caravan_field_blue_completed:
-          - assets/templates/caravan/caravan_field_completed.png
-          - assets/templates/caravan/caravan_field_completed_alt.png
+          - assets/templates/caravan/caravan_field_completed*.png
         caravan_field_yellow_completed:
-          - assets/templates/caravan/caravan_field_completed.png
-          - assets/templates/caravan/caravan_field_completed_alt.png
+          - assets/templates/caravan/caravan_field_completed*.png
       gather_cycle:
         search_icon:
-          - assets/templates/search_icon.png
+          - assets/templates/search_icon*.png
         search_button:
           - assets/templates/search_button.png
         resource_food_icon:
@@ -386,31 +375,38 @@ layouts:
           - assets/templates/gather_button.png
       rally_boomer:
         boomer_icon:
-          - assets/templates/boomer/boomer_icon.png
+          - assets/templates/boomer/boomer_icon*.png
         boomer_team_up_button:
           - assets/templates/boomer/boomer_team_up_button.png
         boomer_rally_icon:
-          - assets/templates/boomer/boomer_rally_icon.png
-          - assets/templates/boomer/boomer_rally_icon_alt.png
-          - assets/templates/boomer/boomer_rally_icon_alt2.png
+          - assets/templates/boomer/boomer_rally_icon*.png
         boomer_auto_union_menu:
           - assets/templates/boomer/boomer_auto_union_menu.png
         boomer_auto_union_button:
-          - assets/templates/boomer/boomer_auto_union_button.png
-          - assets/templates/boomer/boomer_auto_union_button_alt.png
-          - assets/templates/boomer/boomer_auto_union_button_alt2.png
+          - assets/templates/boomer/boomer_auto_union_button*.png
         boomer_auto_union_activate:
           - assets/templates/boomer/boomer_auto_union_activate.png
+        boomer_auto_union_close:
+          - assets/templates/boomer/boomer_auto_union_close.png
         boomer_event_icon:
-          - assets/templates/boomer/boomer_event_icon.png
-          - assets/templates/boomer/boomer_event_icon_alt.png
+          - assets/templates/boomer/boomer_event_icon*.png
+        boomer_reward_icon:
+          - assets/templates/boomer/boomer_reward_icon.png
+        boomer_reward_claim_all:
+          - assets/templates/boomer/boomer_reward_claim_all.png
+        lucky_hot_events:
+          - assets/templates/events/lucky_hot_events*.png
+        lucky_treasure_hunt:
+          - assets/templates/events/lucky_treasure_hunt*.png
+        lucky_treasure_rewards_tab:
+          - assets/templates/events/lucky_treasure_rewards_tab*.png
+        lucky_treasure_claim:
+          - assets/templates/events/lucky_treasure_claim*.png
       daily_quests:
         daily_quests_viviana_icon:
           - assets/templates/daily_quests/viviana_icon.png
         daily_quests_daily_tab_button:
-          - assets/templates/daily_quests/daily_tab_button.png
-          - assets/templates/daily_quests/daily_tab_button_alt.png
-          - assets/templates/daily_quests/daily_tab_button_alt2.png
+          - assets/templates/daily_quests/daily_tab_button*.png
         daily_quests_claim_all_button:
           - assets/templates/daily_quests/claim_all_button.png
       claim_quick_rewards:
@@ -421,17 +417,14 @@ layouts:
         amelia_blueprints:
           - assets/templates/amelia_blueprints.png
         comida:
-          - assets/templates/reward_comida.png
-          - assets/templates/reward_comida_alt.png
+          - assets/templates/reward_comida*.png
         madera:
-          - assets/templates/reward_madera.png
-          - assets/templates/reward_madera_alt.png
+          - assets/templates/reward_madera*.png
         alliance_help_button:
           - assets/templates/alliance_help_button.png
       claim_rss_exploracion:
         rss_exploracion:
-          - assets/templates/rss_exploracion.png
-          - assets/templates/rss_exploracion_alt.png
+          - assets/templates/rss_exploracion*.png
         rss_exploracion_claim:
           - assets/templates/rss_exploracion_claim.png
       arena:
@@ -447,36 +440,19 @@ layouts:
           - assets/templates/arena/arena_skip_button.png
       troop_state:
         troop_state_marching:
-          - assets/templates/troops/troop_state_marching.png
-          - assets/templates/troops/troop_state_marching_alt.png
+          - assets/templates/troops/troop_state_marching*.png
         troop_state_stationed:
           - assets/templates/troops/troop_state_stationed.png
         troop_state_returning:
           - assets/templates/troops/troop_state_returning.png
         troop_state_gathering:
-          - assets/templates/troops/troop_state_gathering.png
-          - assets/templates/troops/troop_state_gathering_alt.png
+          - assets/templates/troops/troop_state_gathering*.png
         troop_state_rally:
-          - assets/templates/troops/troop_state_rally.png
-          - assets/templates/troops/troop_state_rally_alt.png
+          - assets/templates/troops/troop_state_rally*.png
         troop_state_combat:
-          - assets/templates/troops/troop_state_combat.png
-          - assets/templates/troops/troop_state_combat_alt.png
-          - assets/templates/troops/troop_state_combat_alt2.png
-          - assets/templates/troops/troop_state_combat_alt3.png
-          - assets/templates/troops/troop_state_combat_alt4.png
-          - assets/templates/troops/troop_state_combat_alt5.png
-          - assets/templates/troops/troop_state_combat_alt6.png
-          - assets/templates/troops/troop_state_combat_alt7.png
-          - assets/templates/troops/troop_state_combat_alt8.png
-          - assets/templates/troops/troop_state_combat_alt9.png
-          - assets/templates/troops/troop_state_combat_alt10.png
-          - assets/templates/troops/troop_state_combat_alt11.png
-          - assets/templates/troops/troop_state_combat_alt12.png
-          - assets/templates/troops/troop_state_combat_alt13.png
-          - assets/templates/troops/troop_state_combat_alt14.png
+          - assets/templates/troops/troop_state_combat*.png
     troop_state:
-      detection_threshold: 0.75    # optional, defaults to 0.85
+      detection_threshold: 0.85    # optional, defaults to 0.85
       debug_regions_enabled: false
       slots:
         a:
@@ -614,6 +590,8 @@ task_defaults:
     menu_template: "bounty_menu_header"
     go_button_templates:
       - "bounty_go_button"
+    forbidden_go_templates:
+      - "bounty_go_bad_text"
     quick_deploy_template: "bounty_quick_deploy"
     send_button_templates:
       - "bounty_send_button"
@@ -628,7 +606,8 @@ task_defaults:
     tap_delay: 3.0
     icon_threshold: 0.82
     menu_threshold: 0.82
-    go_button_threshold: 0.99
+    go_button_threshold: 0.75
+    forbidden_go_threshold: 0.9
     quick_deploy_threshold: 0.84
     send_button_threshold: 0.84
     hero_busy_threshold: 0.84
@@ -644,8 +623,9 @@ task_defaults:
     mission_completion_timeout: 4.0
     mission_completion_poll: 0.5
     max_missions_per_run: 100
-    max_dispatch_fail_safe: 12    # corta la tarea si se envían demasiadas misiones seguidas (previene bucles por errores)
-    go_button_scan_limit: 5
+    max_dispatch_fail_safe: 9     # corta la tarea si se envían demasiadas misiones seguidas (previene bucles por errores)
+    go_button_scan_limit: 30      # busca 'Go' en toda la pantalla para evitar zonas omitidas
+    max_no_go_retries: 2          # reintenta a lo más dos ciclos cuando no hay 'Go' válido
     go_retry_delay: 2.0
     idle_wait_timeout: 30.0         # 0 = esperar indefinidamente a que vuelva una tropa
     quick_deploy_delay: 1.5
@@ -655,12 +635,44 @@ task_defaults:
     daily_task_name: "bounty_missions"
     daily_limit: 100
     skip_daily_limit_check: false
+  treasure_excavation:
+    icon_templates:
+      - "treasure_icon"
+    dug_button_templates:
+      - "treasure_dug_button"
+    chest_templates:
+      - "treasure_chest"
+    overlay_templates:
+      - "treasure_reward_overlay"
+    home_button_templates:
+      - "sede_button"
+    icon_threshold: 0.82
+    dug_button_threshold: 0.82
+    chest_threshold: 0.82
+    overlay_threshold: 0.84
+    home_button_threshold: 0.7
+    dug_button_timeout: 6.0
+    chest_timeout: 6.0
+    overlay_timeout: 4.0
+    home_button_timeout: 4.0
+    poll_interval: 0.5
+    icon_tap_delay: 2.0
+    dug_button_delay: 3.0
+    chest_delay: 0.5
+    overlay_delay: 0.5
+    overlay_dismiss_tap: [539, 0]
+    back_delay: 1.0
+    return_home: true
+    overlay_use_brightness: true
+    overlay_brightness_threshold: 0.35
   radar_quests:
     icon_templates: ["radar_icon"]
     world_icon_templates: ["radar_world_icon"]
     menu_templates: ["radar_menu_header"]
     claim_button_templates: ["radar_claim_button"]
     laura_button_templates: ["radar_laura_button"]
+    treasure_mission_templates: ["radar_treasure_icon"]
+    treasure_go_button_templates: []     # opcional; usa special_go_button_templates si se deja vacío
     special_mission_templates: ["radar_special_mission_icon"]
     special_go_button_templates: ["radar_special_go_button"]
     help_mission_templates: ["radar_help_mission_icon"]
@@ -1021,8 +1033,13 @@ task_defaults:
     auto_union_menu_template: "boomer_auto_union_menu"
     auto_union_button_template: "boomer_auto_union_button"
     auto_union_activate_template: "boomer_auto_union_activate"
+    auto_union_deactivate_template: "boomer_auto_union_close"
     event_center_template: "event_center_button"
     event_boomer_template: "boomer_event_icon"
+    reward_icon_templates:
+      - "boomer_reward_icon"
+    reward_claim_templates:
+      - "boomer_reward_claim_all"
     search_button_template: "search_button"
     level_increase_template: "level_increase_button"
     level_decrease_template: "level_decrease_button"
@@ -1053,14 +1070,14 @@ task_defaults:
     rally_grace_period: 45.0
     rally_timeout: 180.0
     rally_poll_interval: 5.0
-    target_level: 6
+    target_level: 1
     level_overrides:
-      Farm-07: 4
-      Farm-08: 4
-      Farm-09: 4
-      Farm-10: 4
-      Farm-11: 4
-      Farm-12: 4
+      Farm-07: 1
+      Farm-08: 1
+      Farm-09: 1
+      Farm-10: 1
+      Farm-11: 1
+      Farm-12: 1
     team_button_timeout: 6.0
     rally_icon_timeout: 8.0
     auto_union_timeout: 8.0
@@ -1083,9 +1100,29 @@ task_defaults:
     team_button_threshold: 0.82
     rally_icon_threshold: 0.82
     auto_union_threshold: 0.82
+    reward_icon_threshold: 0.82
+    reward_claim_threshold: 0.82
     daily_task_name: "rally_boomer"
     daily_limit: 5
     skip_daily_limit_check: false
+    reward_icon_timeout: 6.0
+    reward_claim_timeout: 4.0
+    reward_panel_delay: 1.5
+    lucky_discounter_enabled: true
+    lucky_discounter_weekday: 3        # jueves
+    lucky_discounter_start_hour: 23
+    lucky_discounter_duration_days: 7
+    lucky_hot_events_templates: ["lucky_hot_events"]
+    lucky_treasure_hunt_templates: ["lucky_treasure_hunt"]
+    lucky_treasure_rewards_tab_templates: ["lucky_treasure_rewards_tab"]
+    lucky_treasure_claim_templates: ["lucky_treasure_claim"]
+    lucky_treasure_max_claims: 2
+    lucky_treasure_rewards_timeout: 8.0
+    lucky_treasure_claim_timeout: 6.0
+    lucky_hot_events_delay: 2.0
+    lucky_treasure_rewards_delay: 3.0
+    lucky_treasure_post_claim_delay: 1.5
+    lucky_overlay_dismiss_tap: [539, 0]
   claim_quick_rewards:
     reward_templates:
       - "katrina_combustible"
@@ -1160,11 +1197,31 @@ task_defaults:
     menu_return_timeout: 6.0
     menu_return_poll_interval: 0.5
     back_delay: 1.0
+  alliance_donation:
+    icon_templates: ["alliance_icon"]
+    tech_templates: ["alliance_tech_button"]
+    recommended_templates: ["alliance_recommended_button"]
+    donate_templates: ["alliance_donate_button"]
+    dismiss_tap: [539, 0]
+    back_presses: 2
+    tap_delay: 1.5
+    poll_interval: 0.5
+    icon_threshold: 0.82
+    tech_threshold: 0.82
+    recommended_threshold: 0.82
+    donate_threshold: 0.84
+    icon_timeout: 6.0
+    tech_timeout: 5.0
+    recommended_timeout: 5.0
+    donate_timeout: 5.0
+    hold_duration: 6.0
+    cooldown_hours: 4.0
+    daily_task_name: "alliance_donation"
 
 instances:
   - name: Farm-01
-    instance: "Pie64_3"
-    device_port: 5585
+    instance: "Pie64_25"
+    device_port: 5805
     routine: daily-basic
     alliance_help_limit: 28
     alliance_help_minutes: 4
@@ -1195,8 +1252,8 @@ instances:
     free_research_minutes: 15
     free_construction_minutes: 0
   - name: Farm-05
-    instance: "Pie64_9"
-    device_port: 5645
+    instance: "Pie64_24"
+    device_port: 5795
     routine: daily-basic
     alliance_help_limit: 28
     alliance_help_minutes: 4
@@ -1218,16 +1275,16 @@ instances:
     alliance_help_minutes: 2
     free_research_minutes: 15
     free_construction_minutes: 0
-    construction_enabled: true
+    construction_enabled: false
   - name: Farm-08
-    instance: "Pie64_13"
-    device_port: 5685
+    instance: "Pie64_26"
+    device_port: 5815
     routine: daily-basic
     alliance_help_limit: 10
     alliance_help_minutes: 2
     free_research_minutes: 15
     free_construction_minutes: 0
-    construction_enabled: true
+    construction_enabled: false
   - name: Farm-09
     instance: "Pie64_14"
     device_port: 5695
@@ -1236,7 +1293,7 @@ instances:
     alliance_help_minutes: 2
     free_research_minutes: 15
     free_construction_minutes: 0
-    construction_enabled: true
+    construction_enabled: false
   - name: Farm-10
     instance: "Pie64_15"
     device_port: 5705
@@ -1245,7 +1302,7 @@ instances:
     alliance_help_minutes: 2
     free_research_minutes: 15
     free_construction_minutes: 0
-    construction_enabled: true
+    construction_enabled: false
   - name: Farm-11
     instance: "Pie64_16"
     device_port: 5715
@@ -1254,7 +1311,7 @@ instances:
     alliance_help_minutes: 2
     free_research_minutes: 15
     free_construction_minutes: 0
-    construction_enabled: true
+    construction_enabled: false
   - name: Farm-12
     instance: "Pie64_17"
     device_port: 5725
@@ -1263,7 +1320,7 @@ instances:
     alliance_help_minutes: 2
     free_research_minutes: 15
     free_construction_minutes: 0
-    construction_enabled: true
+    construction_enabled: false
 
 routines:
   daily-basic:
@@ -1279,8 +1336,18 @@ routines:
       #- task: trucks
       - task: bounty_missions
       #- task: radar_quests
+      #- task: alliance_donation
       - task: caravan
       - task: rally_boomer
       - task: gather_cycle
       - task: daily_arena
       - task: claim_daily_quests
+  alliance-help-watch:
+    tasks:
+      - task: alliance_help_watch
+        params:
+          templates:
+            - alliance_help_button
+          template_threshold: 0.82
+          poll_interval: 3.0
+          tap_delay: 1.5

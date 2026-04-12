@@ -1,3 +1,5 @@
+"""Implementa utilidades de `map` para el bot Last Z."""
+
 from __future__ import annotations
 
 from typing import Iterable
@@ -8,9 +10,18 @@ from .utils import tap_back_button
 
 
 class AttackBoomerTask:
+    """Modela la responsabilidad de `AttackBoomerTask` en la automatizacion del bot."""
     name = "attack_boomer"
 
     def run(self, ctx: TaskContext, params):
+        """Ejecuta la logica de `run` dentro del flujo del bot.
+
+        Args:
+            ctx: Parametro usado por la rutina.
+            params: Parametro usado por la rutina.
+        Returns:
+            object: Resultado de la operacion.
+        """
         attempts = int(params.get("attempts", 3))
         map_button = params.get("map_button", "map")
         search_button = params.get("search_button", "map_search")
@@ -42,9 +53,18 @@ class AttackBoomerTask:
 
 
 class GatherResourcesTask:
+    """Modela la responsabilidad de `GatherResourcesTask` en la automatizacion del bot."""
     name = "gather_resources"
 
     def run(self, ctx: TaskContext, params):
+        """Ejecuta la logica de `run` dentro del flujo del bot.
+
+        Args:
+            ctx: Parametro usado por la rutina.
+            params: Parametro usado por la rutina.
+        Returns:
+            object: Resultado de la operacion.
+        """
         map_button = params.get("map_button", "map")
         search_button = params.get("search_button", "map_search")
         resource_tab = params.get("resource_tab", "map_resource_tab")

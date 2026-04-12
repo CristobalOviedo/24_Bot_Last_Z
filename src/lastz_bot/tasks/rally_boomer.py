@@ -38,6 +38,7 @@ class RallyBoomerConfig:
     auto_union_menu_templates: List[str]
     auto_union_button_templates: List[str]
     auto_union_activate_templates: List[str]
+    auto_union_deactivate_templates: List[str]
     event_center_templates: List[str]
     event_boomer_templates: List[str]
     search_button_templates: List[str]
@@ -91,6 +92,28 @@ class RallyBoomerConfig:
     daily_task_name: str
     daily_limit: int
     skip_daily_limit_check: bool
+    reward_icon_templates: List[str]
+    reward_claim_templates: List[str]
+    reward_icon_threshold: float
+    reward_claim_threshold: float
+    reward_icon_timeout: float
+    reward_claim_timeout: float
+    reward_panel_delay: float
+    lucky_discounter_enabled: bool
+    lucky_discounter_weekday: int
+    lucky_discounter_start_hour: int
+    lucky_discounter_duration_days: int
+    lucky_hot_events_templates: List[str]
+    lucky_treasure_hunt_templates: List[str]
+    lucky_treasure_rewards_tab_templates: List[str]
+    lucky_treasure_claim_templates: List[str]
+    lucky_treasure_max_claims: int
+    lucky_treasure_rewards_timeout: float
+    lucky_treasure_claim_timeout: float
+    lucky_hot_events_delay: float
+    lucky_treasure_rewards_delay: float
+    lucky_treasure_post_claim_delay: float
+    lucky_overlay_dismiss_tap: Coord
 
     def level_for_farm(self, farm_name: str) -> int:
         """Devuelve el nivel objetivo específico para la granja (o el global)."""
@@ -177,6 +200,7 @@ class RallyBoomerConfig:
             auto_union_menu_templates=resolve(as_list(params.get("auto_union_menu_template", "boomer_auto_union_menu"))),
             auto_union_button_templates=resolve(as_list(params.get("auto_union_button_template", "boomer_auto_union_button"))),
             auto_union_activate_templates=resolve(as_list(params.get("auto_union_activate_template", "boomer_auto_union_activate"))),
+            auto_union_deactivate_templates=resolve(as_list(params.get("auto_union_deactivate_template", "boomer_auto_union_close"))),
             event_center_templates=resolve(as_list(params.get("event_center_template", "event_center_button"))),
             event_boomer_templates=resolve(as_list(params.get("event_boomer_template", "boomer_event_icon"))),
             search_button_templates=resolve(as_list(params.get("search_button_template", "search_button"))),
@@ -234,10 +258,33 @@ class RallyBoomerConfig:
             daily_task_name=str(params.get("daily_task_name", "rally_boomer")),
             daily_limit=max(1, int(params.get("daily_limit", 7))),
             skip_daily_limit_check=bool(params.get("skip_daily_limit_check", False)),
+            reward_icon_templates=resolve(as_list(params.get("reward_icon_templates", ["boomer_reward_icon"]))),
+            reward_claim_templates=resolve(as_list(params.get("reward_claim_templates", ["boomer_reward_claim_all"]))),
+            reward_icon_threshold=float(params.get("reward_icon_threshold", params.get("template_threshold", 0.82))),
+            reward_claim_threshold=float(params.get("reward_claim_threshold", params.get("template_threshold", 0.82))),
+            reward_icon_timeout=float(params.get("reward_icon_timeout", 6.0)),
+            reward_claim_timeout=float(params.get("reward_claim_timeout", 4.0)),
+            reward_panel_delay=float(params.get("reward_panel_delay", 1.5)),
+            lucky_discounter_enabled=bool(params.get("lucky_discounter_enabled", False)),
+            lucky_discounter_weekday=int(params.get("lucky_discounter_weekday", 3)),
+            lucky_discounter_start_hour=int(params.get("lucky_discounter_start_hour", 23)),
+            lucky_discounter_duration_days=int(params.get("lucky_discounter_duration_days", 7)),
+            lucky_hot_events_templates=resolve(as_list(params.get("lucky_hot_events_templates", []))),
+            lucky_treasure_hunt_templates=resolve(as_list(params.get("lucky_treasure_hunt_templates", []))),
+            lucky_treasure_rewards_tab_templates=resolve(as_list(params.get("lucky_treasure_rewards_tab_templates", []))),
+            lucky_treasure_claim_templates=resolve(as_list(params.get("lucky_treasure_claim_templates", []))),
+            lucky_treasure_max_claims=max(1, int(params.get("lucky_treasure_max_claims", 2))),
+            lucky_treasure_rewards_timeout=float(params.get("lucky_treasure_rewards_timeout", 8.0)),
+            lucky_treasure_claim_timeout=float(params.get("lucky_treasure_claim_timeout", 6.0)),
+            lucky_hot_events_delay=float(params.get("lucky_hot_events_delay", 2.0)),
+            lucky_treasure_rewards_delay=float(params.get("lucky_treasure_rewards_delay", 3.0)),
+            lucky_treasure_post_claim_delay=float(params.get("lucky_treasure_post_claim_delay", 1.5)),
+            lucky_overlay_dismiss_tap=as_coord(params.get("lucky_overlay_dismiss_tap"), (539, 0)),
         )
 
 
 class DispatchOutcome(str, Enum):
+    """Modela la responsabilidad de `DispatchOutcome` en la automatizacion del bot."""
     SENT = "sent"
     RECOVER = "recover"
     ABORT = "abort"
@@ -276,102 +323,113 @@ class RallyBoomerTask:
             ctx.console.log(
                 f"[info] Progreso actual de rallies: {tracker_count}/{target_limit} (pendientes: {remaining})"
             )
-
-        auto_union_pending = False
-        if self._auto_union_due(ctx, config):
-            if self._activate_auto_union_from_event_center(ctx, config):
-                self._mark_auto_union(ctx, config)
-            else:
-                auto_union_pending = True
-
-        sent = 0
-        parallel_limit = config.max_parallel_rallies
-        if not layout_supports_troop_states(ctx.layout):
-            parallel_limit = 1
-        active_slots: Dict[str, float] = {}
-        target_level = config.level_for_farm(ctx.farm.name)
-        waiting_for_slot = False
-        consecutive_dispatch_failures = 0
-        while sent < target_limit:
-            if limit_enforced and tracker_count >= target_limit:
-                break
-            if not self._ensure_world_scene(ctx, config):
-                ctx.console.log("No se pudo acceder al mapa del mundo; deteniendo rallies")
-                break
-            if parallel_limit > 1:
-                self._purge_completed_slots(ctx, config, active_slots)
-                if len(active_slots) >= parallel_limit:
-                    if not waiting_for_slot:
-                        ctx.console.log("[info] Todas las tropas permitidas están marchando; esperando un slot libre")
-                        waiting_for_slot = True
-                    ctx.device.sleep(max(1.0, config.rally_poll_interval))
-                    continue
+        self._deactivate_auto_union(ctx, config)
+        try:
+            try:
+                sent = 0
+                parallel_limit = config.max_parallel_rallies
+                if not layout_supports_troop_states(ctx.layout):
+                    parallel_limit = 1
+                active_slots: Dict[str, float] = {}
+                target_level = config.level_for_farm(ctx.farm.name)
                 waiting_for_slot = False
-
-            slot = self._select_idle_slot(ctx, config, blocked_keys=active_slots.keys())
-            if not slot:
-                if parallel_limit > 1 and active_slots:
-                    if not waiting_for_slot:
-                        ctx.console.log("[info] Tropas en marcha; esperando a que una regrese para continuar")
-                        waiting_for_slot = True
-                    ctx.device.sleep(max(1.0, config.rally_poll_interval))
-                    continue
-                ctx.console.log("No hay tropas descansando para iniciar el rally")
-                break
-            waiting_for_slot = False
-            if not self._open_search_panel(ctx, config):
-                break
-            if not self._select_boomer_target(ctx, config):
-                break
-            self._ensure_target_level(ctx, config, target_level)
-            if not self._perform_search(ctx, config):
-                break
-            if not self._engage_team_button(ctx, config):
-                break
-            slot = self._select_idle_slot(
-                ctx,
-                config,
-                blocked_keys=active_slots.keys(),
-            )
-            if not slot:
-                ctx.console.log(
-                    "[info] 'Team Up' abierto pero todas las tropas siguen ocupadas; se reintentará en unos segundos"
-                )
-                self._tap_back(ctx, label="boomer-team-exit")
-                ctx.device.sleep(max(1.5, config.rally_poll_interval))
-                continue
-            outcome, dispatched_slot = self._dispatch_rally(ctx, config, slot)
-            if outcome is DispatchOutcome.SENT:
                 consecutive_dispatch_failures = 0
-            elif outcome is DispatchOutcome.RECOVER:
-                consecutive_dispatch_failures += 1
-                if consecutive_dispatch_failures > 2:
-                    ctx.console.log("[warning] Se agotaron los reintentos tras fallar el envío del rally")
-                    break
-                if self._recover_after_dispatch_failure(ctx, config):
-                    continue
-                break
-            else:
-                break
-            sent += 1
-            tracker_count = self._record_progress(ctx, config.daily_task_name, tracker_count)
-            ctx.console.log(f"Rally contra Boomer enviado #{sent}")
-            if self._auto_union_due(ctx, config):
-                if self._activate_auto_union_from_rally_icon(ctx, config):
-                    self._mark_auto_union(ctx, config)
-                    auto_union_pending = False
-                else:
-                    auto_union_pending = True
-            if parallel_limit <= 1:
-                self._wait_for_rally_completion(ctx, config, dispatched_slot)
-            else:
-                self._register_active_slot(dispatched_slot, active_slots, config)
+                while sent < target_limit:
+                    if limit_enforced and tracker_count >= target_limit:
+                        break
+                    if not self._ensure_world_scene(ctx, config):
+                        ctx.console.log("No se pudo acceder al mapa del mundo; deteniendo rallies")
+                        break
+                    if parallel_limit > 1:
+                        self._purge_completed_slots(ctx, config, active_slots)
+                        if len(active_slots) >= parallel_limit:
+                            if not waiting_for_slot:
+                                ctx.console.log("[info] Todas las tropas permitidas están marchando; esperando un slot libre")
+                                waiting_for_slot = True
+                            self._sleep_quiet(max(1.0, config.rally_poll_interval))
+                            continue
+                        waiting_for_slot = False
 
-        if auto_union_pending:
-            if self._activate_auto_union_from_event_center(ctx, config):
-                self._mark_auto_union(ctx, config)
-
-        self._return_home(ctx, config)
+                    slot = self._select_idle_slot(ctx, config, blocked_keys=active_slots.keys())
+                    if not slot:
+                        if parallel_limit > 1 and active_slots:
+                            if not waiting_for_slot:
+                                ctx.console.log("[info] Tropas en marcha; esperando a que una regrese para continuar")
+                                waiting_for_slot = True
+                            self._sleep_quiet(max(1.0, config.rally_poll_interval))
+                            continue
+                        # Si el HUD de tropas existe, esperamos explícitamente a que alguna vuelva
+                        if layout_supports_troop_states(ctx.layout):
+                            if not waiting_for_slot:
+                                ctx.console.log("[info] No hay tropas libres; se esperará a que alguna regrese")
+                                waiting_for_slot = True
+                            slot = self._wait_for_idle_slot(ctx, config, blocked_keys=active_slots.keys())
+                            if slot:
+                                waiting_for_slot = False
+                            else:
+                                ctx.console.log("[warning] No se liberó ninguna tropa tras esperar; deteniendo rallies")
+                                break
+                        else:
+                            ctx.console.log("No hay tropas descansando para iniciar el rally")
+                            break
+                    waiting_for_slot = False
+                    if not self._open_search_panel(ctx, config):
+                        break
+                    if not self._select_boomer_target(ctx, config):
+                        break
+                    self._ensure_target_level(ctx, config, target_level)
+                    if not self._perform_search(ctx, config):
+                        break
+                    if not self._engage_team_button(ctx, config):
+                        break
+                    slot = self._select_idle_slot(
+                        ctx,
+                        config,
+                        blocked_keys=active_slots.keys(),
+                    )
+                    if not slot:
+                        ctx.console.log(
+                            "[info] 'Team Up' abierto pero todas las tropas siguen ocupadas; se esperará en el panel"
+                        )
+                        slot = self._wait_for_idle_slot(ctx, config, blocked_keys=active_slots.keys())
+                        if not slot:
+                            ctx.console.log("[warning] No se liberó ninguna tropa mientras el panel seguía abierto; deteniendo rallies")
+                            break
+                    outcome, dispatched_slot = self._dispatch_rally(ctx, config, slot)
+                    if outcome is DispatchOutcome.SENT:
+                        consecutive_dispatch_failures = 0
+                    elif outcome is DispatchOutcome.RECOVER:
+                        consecutive_dispatch_failures += 1
+                        if consecutive_dispatch_failures > 2:
+                            ctx.console.log("[warning] Se agotaron los reintentos tras fallar el envío del rally")
+                            break
+                        if self._recover_after_dispatch_failure(ctx, config):
+                            continue
+                        break
+                    else:
+                        break
+                    sent += 1
+                    tracker_count = self._record_progress(ctx, config.daily_task_name, tracker_count)
+                    ctx.console.log(f"Rally contra Boomer enviado #{sent}")
+                    if parallel_limit <= 1:
+                        self._wait_for_rally_completion(ctx, config, dispatched_slot)
+                    else:
+                        self._register_active_slot(dispatched_slot, active_slots, config)
+            finally:
+                try:
+                    self._claim_boomer_rewards(ctx, config)
+                except Exception as exc:  # pragma: no cover - defensive
+                    ctx.console.log(f"[warning] Falló reclamar las recompensas de Boomer: {exc}")
+                try:
+                    self._run_lucky_discounter_rewards(ctx, config)
+                except Exception as exc:  # pragma: no cover - defensive
+                    ctx.console.log(f"[warning] Falló reclamar Lucky Discounter: {exc}")
+                try:
+                    self._return_home(ctx, config)
+                except Exception as exc:  # pragma: no cover - defensive
+                    ctx.console.log(f"[warning] Falló volver a home tras Boomer: {exc}")
+        finally:
+            self._ensure_auto_union_enabled(ctx, config)
 
     # --- flujo de mapa ---
     def _ensure_world_scene(self, ctx: TaskContext, config: RallyBoomerConfig) -> bool:
@@ -391,7 +449,15 @@ class RallyBoomerTask:
             timeout=6.0,
             threshold=config.world_button_threshold,
         ):
-            return False
+            self._tap_overlay_dismiss(ctx, config, label="world-button-overlay-exit")
+            return self._tap_template_group(
+                ctx,
+                config.world_button_templates,
+                label="world-button-retry",
+                timeout=4.0,
+                threshold=config.world_button_threshold,
+                suppress_warning=True,
+            )
         ctx.device.sleep(config.world_transition_delay)
         return self._wait_for_template_group(
             ctx,
@@ -488,7 +554,7 @@ class RallyBoomerTask:
         """Garantiza que el HUD de tropas esté estable antes de leer sus estados."""
         delay = max(config.troop_state_sample_delay, minimum)
         if delay > 0:
-            ctx.device.sleep(delay)
+            self._sleep_quiet(delay)
 
     # --- tropas ---
     def _select_idle_slot(
@@ -512,6 +578,23 @@ class RallyBoomerTask:
         label = (target.label or target.slot_id or "?").upper()
         ctx.console.log(f"Seleccionando tropa {label} (estado: {describe_activity(target.state)})")
         return target
+
+    def _wait_for_idle_slot(
+        self,
+        ctx: TaskContext,
+        config: RallyBoomerConfig,
+        *,
+        blocked_keys: Sequence[str] | None = None,
+    ) -> TroopSlotStatus | None:
+        """Permanece en el panel esperando a que alguna tropa quede libre."""
+        max_wait = min(90.0, max(config.rally_timeout, config.empty_troop_wait_timeout, 60.0))
+        deadline = time.monotonic() + max_wait
+        while time.monotonic() < deadline:
+            slot = self._select_idle_slot(ctx, config, blocked_keys=blocked_keys)
+            if slot:
+                return slot
+            self._sleep_quiet(max(1.0, config.rally_poll_interval))
+        return None
 
     def _dispatch_rally(
         self,
@@ -662,7 +745,7 @@ class RallyBoomerTask:
         slot: TroopSlotStatus,
     ) -> None:
         """Monitorea hasta que la tropa vuelva a IDLE o venza el timeout configurado."""
-        ctx.device.sleep(max(0.0, config.rally_grace_period))
+        self._sleep_quiet(max(0.0, config.rally_grace_period))
         if slot.source != "legacy" and slot.slot_id and layout_supports_troop_states(ctx.layout):
             self._await_troop_state_sample(ctx, config)
             wait_for_slot_state_change(
@@ -712,6 +795,11 @@ class RallyBoomerTask:
             deadline = active_slots[key]
             if key in idle_keys or now >= deadline:
                 active_slots.pop(key, None)
+
+    def _sleep_quiet(self, seconds: float) -> None:
+        """Pausa sin log para reducir spam en esperas largas."""
+        if seconds > 0:
+            time.sleep(seconds)
 
     # --- auto union ---
     def _auto_union_due(self, ctx: TaskContext, config: RallyBoomerConfig) -> bool:
@@ -763,9 +851,53 @@ class RallyBoomerTask:
         ):
             self._close_auto_union_panel(ctx, label="auto-union-activate-missing")
             return False
-        ctx.device.sleep(2.0)
+        self._sleep_quiet(2.0)
         self._dismiss_auto_union_overlay(ctx, label="auto-union-overlay-dismiss")
-        ctx.device.sleep(1.0)
+        self._sleep_quiet(1.0)
+        if panel_opened:
+            self._close_auto_union_panel(ctx, label="auto-union-exit")
+        return True
+
+    def _deactivate_auto_union_from_rally_icon(self, ctx: TaskContext, config: RallyBoomerConfig) -> bool:
+        """Abre el icono de rally y pulsa el botón de cierre de Auto Union."""
+        panel_opened = False
+        if not self._tap_template_group(
+            ctx,
+            config.rally_icon_templates,
+            label="rally-icon",
+            timeout=config.rally_icon_timeout,
+            threshold=config.rally_icon_threshold,
+        ):
+            return False
+        if not self._wait_for_template_group(
+            ctx,
+            config.auto_union_menu_templates,
+            label="auto-union-menu",
+            timeout=config.auto_union_timeout,
+            threshold=config.auto_union_threshold,
+        ):
+            self._close_auto_union_panel(ctx, label="auto-union-menu-missing")
+            return False
+        panel_opened = True
+        if not self._tap_template_group(
+            ctx,
+            config.auto_union_button_templates,
+            label="auto-union",
+            timeout=config.auto_union_timeout,
+            threshold=config.auto_union_threshold,
+        ):
+            self._close_auto_union_panel(ctx, label="auto-union-button-missing")
+            return False
+        if not self._tap_template_group(
+            ctx,
+            config.auto_union_deactivate_templates,
+            label="auto-union-deactivate",
+            timeout=config.auto_union_timeout,
+            threshold=config.auto_union_threshold,
+        ):
+            self._close_auto_union_panel(ctx, label="auto-union-deactivate-missing")
+            return False
+        self._sleep_quiet(1.0)
         if panel_opened:
             self._close_auto_union_panel(ctx, label="auto-union-exit")
         return True
@@ -820,6 +952,56 @@ class RallyBoomerTask:
         self._dismiss_auto_union_overlay(ctx, label="event-auto-union-exit-2")
         return True
 
+    def _deactivate_auto_union_from_event_center(self, ctx: TaskContext, config: RallyBoomerConfig) -> bool:
+        """Abre Event Center y desactiva Auto Union usando el botón de cerrar."""
+        if not self._ensure_city_scene(ctx, config):
+            return False
+        if not self._tap_template_group(
+            ctx,
+            config.event_center_templates,
+            label="event-center",
+            timeout=6.0,
+            threshold=config.template_threshold,
+        ):
+            return False
+        ctx.device.sleep(config.world_transition_delay)
+        ctx.device.swipe(
+            config.event_drag_start,
+            config.event_drag_end,
+            duration_ms=config.drag_duration_ms,
+            label="event-scroll",
+        )
+        ctx.device.sleep(config.post_drag_delay)
+        if not self._tap_template_group(
+            ctx,
+            config.event_boomer_templates,
+            label="event-boomer",
+            timeout=6.0,
+            threshold=config.template_threshold,
+        ):
+            return False
+        ctx.device.sleep(2.0)
+        if not self._tap_template_group(
+            ctx,
+            config.auto_union_button_templates,
+            label="auto-union",
+            timeout=config.auto_union_timeout,
+            threshold=config.auto_union_threshold,
+        ):
+            return False
+        if not self._tap_template_group(
+            ctx,
+            config.auto_union_deactivate_templates,
+            label="auto-union-deactivate",
+            timeout=config.auto_union_timeout,
+            threshold=config.auto_union_threshold,
+        ):
+            return False
+        ctx.device.sleep(1.5)
+        self._dismiss_auto_union_overlay(ctx, label="event-auto-union-close-1")
+        self._dismiss_auto_union_overlay(ctx, label="event-auto-union-close-2")
+        return True
+
     def _ensure_city_scene(self, ctx: TaskContext, config: RallyBoomerConfig) -> bool:
         """Se asegura de que la cámara regrese a la ciudad usando back/world buttons."""
         if self._wait_for_template_group(
@@ -841,14 +1023,16 @@ class RallyBoomerTask:
             threshold=config.world_button_threshold,
         )
 
-    def _tap_back(self, ctx: TaskContext, *, label: str = "back-button") -> bool:
-        """Intenta tocar el botón back mediante template y agrega un pequeño delay."""
+    def _tap_back(self, ctx: TaskContext, *, label: str = "back-button", use_overlay_fallback: bool = True) -> bool:
+        """Intenta tocar el botón back; opcionalmente recurre al tap fijo si no aparece."""
         tapped = tap_back_button(ctx, label=label)
-        if not tapped:
-            ctx.console.log(f"[warning] No se detectó el botón 'back' ({label})")
-            return False
-        ctx.device.sleep(1.0)
-        return True
+        if not tapped and use_overlay_fallback:
+            ctx.console.log(f"[warning] No se detectó el botón 'back' ({label}); usando overlay dismiss")
+            self._tap_overlay_dismiss(ctx, None, label=f"{label}-overlay-fallback")
+            return True
+        if tapped:
+            ctx.device.sleep(1.0)
+        return tapped
 
     def _dismiss_auto_union_overlay(self, ctx: TaskContext, *, label: str) -> None:
         """Cierra modales del evento tocando el botón back o coordenada fija."""
@@ -856,11 +1040,31 @@ class RallyBoomerTask:
         if not coord:
             coord = (270, 120)
         ctx.device.tap(coord, label=label)
-        ctx.device.sleep(1.0)
+        self._sleep_quiet(1.0)
 
     def _close_auto_union_panel(self, ctx: TaskContext, *, label: str) -> None:
         """Helper que reutiliza el dismiss overlay para cerrar el panel actual."""
         self._dismiss_auto_union_overlay(ctx, label=label)
+
+    def _deactivate_auto_union(self, ctx: TaskContext, config: RallyBoomerConfig) -> None:
+        """Desactiva Auto Union antes de iniciar los rallies (best-effort)."""
+        if self._deactivate_auto_union_from_rally_icon(ctx, config):
+            ctx.console.log("[info] Auto Union desactivado desde el icono de rally")
+            return
+        if self._deactivate_auto_union_from_event_center(ctx, config):
+            ctx.console.log("[info] Auto Union desactivado desde Event Center")
+            return
+        ctx.console.log("[warning] No se pudo desactivar Auto Union antes de los rallies")
+
+    def _ensure_auto_union_enabled(self, ctx: TaskContext, config: RallyBoomerConfig) -> None:
+        """Garantiza reactivar Auto Union al finalizar o ante errores."""
+        if self._activate_auto_union_from_rally_icon(ctx, config):
+            self._mark_auto_union(ctx, config)
+            return
+        if self._activate_auto_union_from_event_center(ctx, config):
+            self._mark_auto_union(ctx, config)
+            return
+        ctx.console.log("[warning] No se pudo reactivar Auto Union; reintentar manualmente")
 
     def _mark_auto_union(self, ctx: TaskContext, config: RallyBoomerConfig) -> None:
         """Registra en el tracker cuándo se activó Auto Union para calcular vencimientos."""
@@ -1041,6 +1245,153 @@ class RallyBoomerTask:
             threshold=config.sede_button_threshold,
         )
         ctx.device.sleep(config.world_transition_delay)
+
+    def _claim_boomer_rewards(self, ctx: TaskContext, config: RallyBoomerConfig) -> None:
+        """Tras completar los rallies, reclama las recompensas del mapa y cierra el overlay."""
+        if not ctx.vision:
+            return
+        if not config.reward_icon_templates or not config.reward_claim_templates:
+            return
+        # Asegura que estamos en ciudad o mapa principal antes de buscar el icono de recompensa.
+        self._ensure_city_scene(ctx, config)
+        icon_thresholds = [config.reward_icon_threshold, max(0.7, config.reward_icon_threshold - 0.1)]
+        claim_thresholds = [config.reward_claim_threshold, max(0.7, config.reward_claim_threshold - 0.1)]
+        for attempt in range(5):
+            # Limpia overlays que puedan tapar el icono.
+            if attempt > 0:
+                self._tap_overlay_dismiss(ctx, config, label=f"boomer-reward-overlay-pre-{attempt}")
+            tapped_icon = False
+            for th in icon_thresholds:
+                tapped_icon = self._tap_template_group(
+                    ctx,
+                    config.reward_icon_templates,
+                    label=f"boomer-reward-icon-{attempt + 1}-th-{th:.2f}",
+                    timeout=config.reward_icon_timeout,
+                    threshold=th,
+                    suppress_warning=True,
+                )
+                if tapped_icon:
+                    break
+            if not tapped_icon:
+                continue
+            if config.reward_panel_delay > 0:
+                ctx.device.sleep(config.reward_panel_delay)
+            tapped_claim = False
+            for th in claim_thresholds:
+                tapped_claim = self._tap_template_group(
+                    ctx,
+                    config.reward_claim_templates,
+                    label=f"boomer-reward-claim-all-{attempt + 1}-th-{th:.2f}",
+                    timeout=config.reward_claim_timeout,
+                    threshold=th,
+                    suppress_warning=True,
+                )
+                if tapped_claim:
+                    break
+            if tapped_claim:
+                ctx.device.sleep(config.reward_panel_delay)
+                self._tap_overlay_dismiss(ctx, config, label="boomer-reward-overlay-dismiss")
+                return
+        ctx.console.log("[warning] No se pudo reclamar recompensa de Boomer tras varios intentos (icono visible pero sin match)")
+
+    def _run_lucky_discounter_rewards(self, ctx: TaskContext, config: RallyBoomerConfig) -> None:
+        """Durante la semana de Lucky Discounter, abre Hot Events y reclama el tesoro."""
+        if not self._is_lucky_discounter_active(config):
+            return
+        if not ctx.vision:
+            return
+        if not config.lucky_hot_events_templates or not config.lucky_treasure_hunt_templates:
+            return
+        # Intenta volver a ciudad para navegar al evento; si falla, igual intenta desde la vista actual.
+        self._ensure_city_scene(ctx, config)
+        if not self._tap_template_group(
+            ctx,
+            config.lucky_hot_events_templates,
+            label="lucky-hot-events",
+            timeout=config.lucky_treasure_rewards_timeout,
+            threshold=config.template_threshold,
+            suppress_warning=True,
+        ):
+            return
+        ctx.device.sleep(config.lucky_hot_events_delay)
+        if not self._tap_template_group(
+            ctx,
+            config.lucky_treasure_hunt_templates,
+            label="lucky-treasure-hunt",
+            timeout=config.lucky_treasure_rewards_timeout,
+            threshold=config.template_threshold,
+            suppress_warning=True,
+        ):
+            self._tap_back(ctx, label="lucky-hot-events-exit")
+            return
+        ctx.device.sleep(config.lucky_treasure_rewards_delay)
+        if config.lucky_treasure_rewards_tab_templates:
+            self._tap_template_group(
+                ctx,
+                config.lucky_treasure_rewards_tab_templates,
+                label="lucky-rewards-tab",
+                timeout=config.lucky_treasure_rewards_timeout,
+                threshold=config.template_threshold,
+                suppress_warning=True,
+            )
+            ctx.device.sleep(1.0)
+        self._claim_lucky_treasure_rewards(ctx, config)
+        self._tap_back(ctx, label="lucky-treasure-exit")
+        ctx.device.sleep(0.5)
+        self._tap_back(ctx, label="lucky-hot-events-exit")
+
+    def _is_lucky_discounter_active(self, config: RallyBoomerConfig) -> bool:
+        """Determina si corresponde ejecutar el flujo semanal de Lucky Discounter."""
+        if not config.lucky_discounter_enabled:
+            return False
+        now = datetime.now()
+        weekday = config.lucky_discounter_weekday % 7
+        start_candidate = now - timedelta(days=(now.weekday() - weekday) % 7)
+        start = start_candidate.replace(
+            hour=max(0, min(23, config.lucky_discounter_start_hour)),
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        if now < start:
+            start -= timedelta(days=7)
+        duration = timedelta(days=max(1, config.lucky_discounter_duration_days))
+        return now < start + duration
+
+    def _claim_lucky_treasure_rewards(self, ctx: TaskContext, config: RallyBoomerConfig) -> int:
+        """Reclama hasta dos recompensas del tesoro semanal manejando overlays oscuros."""
+        if not ctx.vision:
+            return 0
+        if not config.lucky_treasure_claim_templates:
+            return 0
+        claims = 0
+        max_claims = max(1, config.lucky_treasure_max_claims)
+        for attempt in range(max_claims):
+            if not self._tap_template_group(
+                ctx,
+                config.lucky_treasure_claim_templates,
+                label=f"lucky-claim-{attempt + 1}",
+                timeout=config.lucky_treasure_claim_timeout,
+                threshold=config.template_threshold,
+                suppress_warning=True,
+            ):
+                break
+            claims += 1
+            ctx.device.sleep(config.lucky_treasure_post_claim_delay)
+            self._tap_overlay_dismiss(ctx, config, label=f"lucky-claim-overlay-{attempt + 1}")
+            ctx.device.sleep(config.lucky_treasure_post_claim_delay)
+        return claims
+
+    def _tap_overlay_dismiss(self, ctx: TaskContext, config: RallyBoomerConfig | None, *, label: str) -> None:
+        """Toca la coordenada configurada (o botones comunes) para cerrar overlays."""
+        layout_buttons = getattr(ctx.layout, "buttons", {}) or {}
+        coord = layout_buttons.get("close_popup") or layout_buttons.get("back_button")
+        if not coord and config:
+            coord = config.lucky_overlay_dismiss_tap
+        if not coord:
+            coord = (539, 0)
+        ctx.device.tap(coord, label=label)
+        self._sleep_quiet(1.0)
 
     def _slot_key(self, slot: TroopSlotStatus) -> str | None:
         """Devuelve una llave estable (slot_id o etiqueta) para identificar tropas."""

@@ -38,6 +38,7 @@ class BountyMissionConfig:
     icon_templates: Sequence[Path]
     menu_templates: Sequence[Path]
     go_button_templates: Sequence[Path]
+    forbidden_go_templates: Sequence[Path]
     quick_deploy_templates: Sequence[Path]
     send_button_templates: Sequence[Path]
     hero_busy_templates: Sequence[Path]
@@ -58,6 +59,7 @@ class BountyMissionConfig:
     icon_threshold: float
     menu_threshold: float
     go_button_threshold: float
+    forbidden_go_threshold: float
     quick_deploy_threshold: float
     send_button_threshold: float
     hero_busy_threshold: float
@@ -75,6 +77,7 @@ class BountyMissionConfig:
     max_missions_per_run: int
     max_dispatch_fail_safe: int
     go_button_scan_limit: int
+    max_no_go_retries: int
     go_retry_delay: float
     quick_deploy_delay: float
     send_delay: float
@@ -91,6 +94,13 @@ class BountyMissionConfig:
         console = ctx.console
 
         def as_list(value: object) -> List[str]:
+            """Ejecuta la logica de `as_list` dentro del flujo del bot.
+
+            Args:
+                value: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             if value is None:
                 return []
             if isinstance(value, str):
@@ -107,12 +117,27 @@ class BountyMissionConfig:
             return [text] if text else []
 
         def ensure_list(value: object, fallback: Sequence[str]) -> List[str]:
+            """Ejecuta la logica de `ensure_list` dentro del flujo del bot.
+
+            Args:
+                value: Parametro usado por la rutina.
+                fallback: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             entries = as_list(value)
             if entries:
                 return entries
             return [str(item).strip() for item in fallback if str(item).strip()]
 
         def as_coord(value: object) -> Coord | None:
+            """Ejecuta la logica de `as_coord` dentro del flujo del bot.
+
+            Args:
+                value: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             if isinstance(value, (list, tuple)) and len(value) == 2:
                 try:
                     return int(value[0]), int(value[1])
@@ -128,6 +153,13 @@ class BountyMissionConfig:
             return None
 
         def resolve(names: Sequence[str]) -> List[Path]:
+            """Ejecuta la logica de `resolve` dentro del flujo del bot.
+
+            Args:
+                names: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             paths: List[Path] = []
             for name in names:
                 try:
@@ -141,6 +173,7 @@ class BountyMissionConfig:
         icon_templates = resolve(ensure_list(params.get("icon_template"), ["bounty_icon"]))
         menu_templates = resolve(ensure_list(params.get("menu_template"), ["bounty_menu_header"]))
         go_button_templates = resolve(ensure_list(params.get("go_button_templates"), ["bounty_go_button"]))
+        forbidden_go_templates = resolve(as_list(params.get("forbidden_go_templates")))
         quick_deploy_templates = resolve(ensure_list(params.get("quick_deploy_template"), ["bounty_quick_deploy"]))
         send_button_templates = resolve(ensure_list(params.get("send_button_templates"), ["bounty_send_button", "march_button"]))
         hero_busy_templates = resolve(as_list(params.get("hero_busy_templates")))
@@ -177,10 +210,14 @@ class BountyMissionConfig:
         )
         claim_overlay_fallback = as_coord(params.get("claim_overlay_dismiss_tap"))
 
+        go_button_scan_limit = max(1, int(params.get("go_button_scan_limit", 12)))
+        max_no_go_retries = max(1, int(params.get("max_no_go_retries", 2)))
+
         return BountyMissionConfig(
             icon_templates=icon_templates,
             menu_templates=menu_templates,
             go_button_templates=go_button_templates,
+            forbidden_go_templates=forbidden_go_templates,
             quick_deploy_templates=quick_deploy_templates,
             send_button_templates=send_button_templates,
             hero_busy_templates=hero_busy_templates,
@@ -200,7 +237,11 @@ class BountyMissionConfig:
             tap_delay=tap_delay,
             icon_threshold=float(params.get("icon_threshold", 0.82)),
             menu_threshold=float(params.get("menu_threshold", 0.82)),
-            go_button_threshold=float(params.get("go_button_threshold", 0.84)),
+            go_button_threshold=float(params.get("go_button_threshold", 0.89)),
+            forbidden_go_threshold=float(
+                params.get("forbidden_go_threshold")
+                or params.get("go_button_threshold", 0.89)
+            ),
             quick_deploy_threshold=float(params.get("quick_deploy_threshold", 0.84)),
             send_button_threshold=float(params.get("send_button_threshold", 0.84)),
             hero_busy_threshold=float(params.get("hero_busy_threshold", 0.84)),
@@ -217,7 +258,8 @@ class BountyMissionConfig:
             mission_completion_poll=float(params.get("mission_completion_poll", 0.5)),
             max_missions_per_run=max(1, int(params.get("max_missions_per_run", 4))),
             max_dispatch_fail_safe=max(0, int(params.get("max_dispatch_fail_safe", 12))),
-            go_button_scan_limit=max(1, int(params.get("go_button_scan_limit", 4))),
+            go_button_scan_limit=go_button_scan_limit,
+            max_no_go_retries=max_no_go_retries,
             go_retry_delay=float(params.get("go_retry_delay", 2.0)),
             quick_deploy_delay=float(params.get("quick_deploy_delay", 1.5)),
             send_delay=float(params.get("send_delay", 1.0)),
@@ -234,7 +276,9 @@ class BountyMissionsTask:
 
     name = "bounty_missions"
     manual_daily_logging = True
-    _failure_radius = 60
+    _failure_radius = 48
+    _forbidden_radius = 48
+    _max_attempts_per_coord = 2
 
     def run(self, ctx: TaskContext, params: Dict[str, Any]) -> None:  # type: ignore[override]
         """Envía misiones hasta agotar límites, reclamando recompensas si aparecen."""
@@ -265,7 +309,8 @@ class BountyMissionsTask:
         failed_targets: List[Coord] = []
         target_failures: Dict[Coord, int] = {}
         consecutive_go_failures = 0
-        max_go_failures = max(3, config.go_button_scan_limit)
+        max_go_failures = max(1, min(2, config.go_button_scan_limit))
+        consecutive_no_go = 0
         while missions_launched < config.max_missions_per_run:
             if limit_enforced and tracker_count >= config.daily_limit:
                 ctx.console.log("[info] Se alcanzó el límite diario de bounty missions")
@@ -279,14 +324,21 @@ class BountyMissionsTask:
 
             target = self._next_go_target(ctx, config, failed_targets)
             if target is None:
+                consecutive_no_go += 1
                 if self._no_missions_remaining(ctx, config):
                     ctx.console.log("[info] No se encontraron más misiones disponibles")
+                    break
+                if consecutive_no_go >= config.max_no_go_retries:
+                    ctx.console.log(
+                        "[warning] No se detectaron botones 'Go' tras varios reintentos; se detiene bounty_missions"
+                    )
                     break
                 if config.go_retry_delay > 0:
                     ctx.console.log("[info] No se detectó botón 'Go'; reintentando tras una pausa corta")
                     ctx.device.sleep(config.go_retry_delay)
                     continue
                 break
+            consecutive_no_go = 0
 
             result = self._execute_mission(ctx, config, target)
             target_key: Coord = (int(target[0]), int(target[1]))
@@ -304,24 +356,38 @@ class BountyMissionsTask:
                 consecutive_go_failures = 0
                 target_failures.pop(target_key, None)
                 continue
-            # Desde el primer fallo, bloquea esta coordenada para no repetirla.
-            if target not in failed_targets:
-                failed_targets.append(target)
-            target_failures[target_key] = target_failures.get(target_key, 0) + 1
-
             if result is MissionResult.HERO_BUSY:
+                # Sin héroes disponibles en esta misión: bloquear coord y probar con otra
+                target_failures[target_key] = target_failures.get(target_key, 0) + 1
+                if target not in failed_targets:
+                    failed_targets.append(target)
                 consecutive_go_failures = 0
+                ctx.console.log(
+                    "[info] Misión rechazada por héroes ocupados; se bloquea ese 'Go' y se intenta con otro"
+                )
                 continue
 
             if result is MissionResult.RETRY:
+                attempts = target_failures.get(target_key, 0) + 1
+                target_failures[target_key] = attempts
+                if attempts >= self._max_attempts_per_coord and target not in failed_targets:
+                    failed_targets.append(target)
                 consecutive_go_failures += 1
                 if consecutive_go_failures >= max_go_failures:
                     ctx.console.log(
                         "[warning] Varias misiones no se pudieron abrir tras pulsar 'Go'; se asume que no quedan misiones válidas"
                     )
                     break
+                ctx.console.log(
+                    f"[info] Botón 'Go' en {target_key} falló; reintento {consecutive_go_failures}/{max_go_failures} (intentos en coord={attempts}/{self._max_attempts_per_coord})"
+                )
                 self._return_to_mission_list(ctx, config)
                 continue
+
+            # Otros fallos definitivos
+            target_failures[target_key] = target_failures.get(target_key, 0) + 1
+            if target not in failed_targets:
+                failed_targets.append(target)
             ctx.console.log("[warning] La mision actual no pudo completarse; deteniendo bounty_missions")
             break
 
@@ -525,19 +591,86 @@ class BountyMissionsTask:
         failed: Sequence[Coord],
     ) -> Coord | None:
         assert ctx.vision is not None
+        forbidden = self._forbidden_targets(ctx, config)
+        if forbidden:
+            coords_str = ", ".join(f"({x},{y})" for x, y in forbidden[:5])
+            ctx.console.log(
+                f"[info] Detectados {len(forbidden)} botones 'Go' inválidos cerca de: {coords_str}"
+            )
         matches = ctx.vision.find_all_templates(
             config.go_button_templates,
             threshold=config.go_button_threshold,
             max_results=config.go_button_scan_limit,
         )
+        if not matches:
+            fallback_threshold = max(0.7, config.go_button_threshold * 0.9)
+            fallback_limit = max(config.go_button_scan_limit, 12) * 2
+            ctx.console.log(
+                f"[info] No se detectaron 'Go' al umbral {config.go_button_threshold:.2f}; reintentando con {fallback_threshold:.2f} y límite {fallback_limit}"
+            )
+            matches = ctx.vision.find_all_templates(
+                config.go_button_templates,
+                threshold=fallback_threshold,
+                max_results=fallback_limit,
+            )
+        if matches:
+            matches = self._dedup_matches(matches, radius=2.5)
+            matches = sorted(matches, key=lambda item: (item[0][1], item[0][0]))
+            sample = ", ".join(f"({c[0]},{c[1]})" for c, _ in matches[:6])
+            ctx.console.log(
+                f"[info] Coincidencias 'Go' encontradas (orden Y,X): {len(matches)} -> {sample}"
+            )
+        filtered_any = False
         for coords, _ in matches:
-            if not self._is_failed(coords, failed):
-                return coords
+            if self._is_failed(coords, failed):
+                continue
+            if forbidden and self._is_forbidden(coords, forbidden):
+                continue
+            filtered_any = True
+            return coords
+        if matches and not filtered_any:
+            ctx.console.log("[info] Todas las coincidencias 'Go' quedaron filtradas (fallidas/forbidden)")
         return None
+
+    def _forbidden_targets(
+        self,
+        ctx: TaskContext,
+        config: BountyMissionConfig,
+    ) -> List[Coord]:
+        if not config.forbidden_go_templates or not ctx.vision:
+            return []
+        matches = ctx.vision.find_all_templates(
+            config.forbidden_go_templates,
+            threshold=config.forbidden_go_threshold,
+            max_results=config.go_button_scan_limit * 2,
+        )
+        return [coords for coords, _ in matches]
+
+    def _dedup_matches(
+        self,
+        matches: Sequence[tuple[Coord, Path]],
+        *,
+        radius: float,
+    ) -> List[tuple[Coord, Path]]:
+        """Elimina coincidencias muy cercanas (p.ej., 1px) para evitar duplicados del mismo botón."""
+
+        unique: List[tuple[Coord, Path]] = []
+        for coords, match in matches:
+            cx, cy = coords
+            if any(math.hypot(cx - ux, cy - uy) <= radius for (ux, uy), _ in unique):
+                continue
+            unique.append((coords, match))
+        return unique
 
     def _is_failed(self, coords: Coord, failed: Sequence[Coord]) -> bool:
         for fx, fy in failed:
             if math.hypot(coords[0] - fx, coords[1] - fy) <= self._failure_radius:
+                return True
+        return False
+
+    def _is_forbidden(self, coords: Coord, forbidden: Sequence[Coord]) -> bool:
+        for fx, fy in forbidden:
+            if math.hypot(coords[0] - fx, coords[1] - fy) <= self._forbidden_radius:
                 return True
         return False
 
@@ -555,9 +688,7 @@ class BountyMissionsTask:
                 threshold=config.go_button_threshold,
             )
             return badge is None
-        # Si no se configuraron detectores opcionales asumimos que la ausencia de "Go" ya confirma que no hay misiones.
-        if not config.no_missions_templates and not config.mission_badge_templates:
-            return True
+        # Si no hay detectores específicos configurados, no asumir que no hay misiones; se reintentará escanear.
         return False
 
     def _tap_first_template(
@@ -626,7 +757,24 @@ class BountyMissionsTask:
     ) -> None:
         if reason is HeroBusyReason.OVERLAY:
             self._dismiss_hero_busy(ctx, config)
-        self._return_to_mission_list(ctx, config)
+        self._reset_after_busy(ctx, config)
+
+    def _reset_after_busy(self, ctx: TaskContext, config: BountyMissionConfig) -> None:
+        """Cierra la vista actual una sola vez y reabre el menú desde el icono."""
+
+        if self._is_menu_visible(ctx, config):
+            return
+
+        closed = self._tap_close_button(ctx, config)
+        if not closed and not tap_back_button(ctx, label="bounty-busy-back"):
+            ctx.console.log("[warning] No se pudo cerrar la vista tras héroes ocupados")
+        if config.back_delay > 0:
+            ctx.device.sleep(config.back_delay)
+
+        if not self._open_menu(ctx, config):
+            ctx.console.log(
+                "[warning] No se pudo reabrir el menú de bounty tras héroes ocupados"
+            )
 
     def _detail_panel_persists(
         self,
@@ -686,20 +834,15 @@ class BountyMissionsTask:
     def _return_to_mission_list(self, ctx: TaskContext, config: BountyMissionConfig) -> bool:
         if self._is_menu_visible(ctx, config):
             return True
-        attempts = 0
-        while attempts < 3:
-            if self._tap_close_button(ctx, config):
-                pass
-            else:
-                if not tap_back_button(ctx, label="bounty-back"):
-                    ctx.console.log("[warning] No se detectó el botón 'back' al intentar volver a la lista de misiones")
-                    break
-            attempts += 1
-            if config.back_delay > 0:
-                ctx.device.sleep(config.back_delay)
-            if self._is_menu_visible(ctx, config):
-                return True
-        return self._wait_for_menu(ctx, config)
+
+        if not self._tap_close_button(ctx, config):
+            tap_back_button(ctx, label="bounty-back")
+        if config.back_delay > 0:
+            ctx.device.sleep(config.back_delay)
+
+        if self._is_menu_visible(ctx, config):
+            return True
+        return self._open_menu(ctx, config)
 
     def _tap_close_button(
         self,

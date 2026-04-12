@@ -94,6 +94,13 @@ class FuryLordConfig:
     def from_params(params: Dict[str, object]) -> "FuryLordConfig":
         """Construye la configuración a partir de un diccionario crudo (YAML/JSON)."""
         def as_list(value: object) -> List[str]:
+            """Ejecuta la logica de `as_list` dentro del flujo del bot.
+
+            Args:
+                value: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             if value is None:
                 return []
             if isinstance(value, str):
@@ -101,11 +108,26 @@ class FuryLordConfig:
             return [str(item) for item in value]
 
         def as_coord(value: object, default: Coord) -> Coord:
+            """Ejecuta la logica de `as_coord` dentro del flujo del bot.
+
+            Args:
+                value: Parametro usado por la rutina.
+                default: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             if isinstance(value, (list, tuple)) and len(value) == 2:
                 return int(value[0]), int(value[1])
             return default
 
         def as_hour_list(value: object) -> List[int]:
+            """Ejecuta la logica de `as_hour_list` dentro del flujo del bot.
+
+            Args:
+                value: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             hours: List[int] = []
             for item in as_list(value):
                 try:
@@ -955,6 +977,14 @@ class FuryLordTask:
     def _closest_coord(self, target: Coord, options: List[Coord]) -> Coord:
         """Devuelve la coordenada más cercana al punto objetivo usando distancia Manhattan."""
         def distance(a: Coord, b: Coord) -> int:
+            """Ejecuta la logica de `distance` dentro del flujo del bot.
+
+            Args:
+                a: Parametro usado por la rutina.
+                b: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
         return min(options, key=lambda coord: distance(coord, target))

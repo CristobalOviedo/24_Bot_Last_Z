@@ -100,6 +100,63 @@ class ClaimQuickRewardsTask:
                 ctx.device.sleep(tap_delay)
 
 
+class AllianceHelpWatchTask:
+    """Observa continuamente el botón de ayuda y lo pulsa cuando aparece."""
+
+    name = "alliance_help_watch"
+
+    def __init__(self) -> None:
+        self._missing_templates: set[str] = set()
+
+    def run(self, ctx: TaskContext, params: dict) -> None:  # type: ignore[override]
+        """Ejecuta la logica de `run` dentro del flujo del bot.
+
+        Args:
+            ctx: Parametro usado por la rutina.
+            params: Parametro usado por la rutina.
+        Returns:
+            object: Resultado de la operacion.
+        """
+        if not ctx.vision:
+            ctx.console.log("[warning] VisionHelper no disponible; alliance_help_watch requiere detecciones")
+            return
+
+        template_names = _as_list(
+            params.get("templates")
+            or params.get("reward_templates")
+            or params.get("help_templates")
+            or "alliance_help_button"
+        )
+        threshold = float(params.get("template_threshold", params.get("threshold", 0.8)))
+        poll_interval = float(params.get("poll_interval", 3.0))
+        tap_delay = float(params.get("tap_delay", 1.5))
+        stop_event = getattr(ctx, "stop_event", None)
+
+        ctx.console.log(
+            f"[info] Monitoreando ayudas de alianza cada {poll_interval:.1f}s (templates={template_names}, thr={threshold:.2f})"
+        )
+
+        while True:
+            if stop_event and stop_event.is_set():
+                break
+            ctx.wait_if_paused()
+
+            paths = _paths_from_names(ctx, template_names, self._missing_templates)
+            if paths:
+                result = ctx.vision.find_any_template(paths, threshold=threshold)
+                if result:
+                    coords, matched_path = result
+                    ctx.console.log(
+                        f"[info] Botón '{matched_path.name}' detectado; enviando ayuda"
+                    )
+                    ctx.device.tap(coords, label="alliance-help")
+                    if tap_delay > 0:
+                        ctx.device.sleep(tap_delay)
+
+            if poll_interval > 0:
+                ctx.device.sleep(poll_interval)
+
+
 class ClaimRssExplorationTask:
     """Abre el panel de exploración RSS, reclama y confirma retorno a la ciudad."""
     name = "claim_rss_exploracion"

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from .base import TaskRegistry
 from .close_popups import ClosePopupsTask
+from .alliance_donation import AllianceDonationTask
 from .mail import CollectMailTask
 from .vip import CollectVIPTask
 from .map import AttackBoomerTask, GatherResourcesTask
 from .gather_cycle import GatherCycleTask
 from .fury_lord import FuryLordTask
-from .rewards import ClaimQuickRewardsTask, ClaimRssExplorationTask
+from .rewards import ClaimQuickRewardsTask, ClaimRssExplorationTask, AllianceHelpWatchTask
+from .treasure_excavation import TreasureExcavationTask
 from .daily_quests import ClaimDailyQuestsTask
 from .arena import DailyArenaTask
 from .caravan import CaravanTask
@@ -26,6 +28,7 @@ def build_registry() -> TaskRegistry:
     """Instancia y registra todas las tareas soportadas por el bot."""
     registry = TaskRegistry()
     registry.register(ClosePopupsTask())
+    registry.register(AllianceDonationTask())
     registry.register(CollectMailTask())
     registry.register(CollectVIPTask())
     registry.register(AttackBoomerTask())
@@ -35,6 +38,8 @@ def build_registry() -> TaskRegistry:
     registry.register(FuryLordTask())
     registry.register(ClaimQuickRewardsTask())
     registry.register(ClaimRssExplorationTask())
+    registry.register(AllianceHelpWatchTask())
+    registry.register(TreasureExcavationTask())
     registry.register(CaravanTask())
     registry.register(TrucksTask())
     registry.register(HealTroopsTask())

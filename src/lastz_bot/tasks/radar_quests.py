@@ -15,13 +15,14 @@ from ..troop_state import (
     layout_supports_troop_states,
 )
 from .base import TaskContext
-from .utils import tap_back_button, dismiss_overlay_if_present
+from .utils import tap_back_button, dismiss_overlay_if_present, wait_for_overlay
 
 Coord = Tuple[int, int]
 HandledHelpMission = Tuple[Coord, float]
 
 
 class HelpMissionStatus(Enum):
+    """Modela la responsabilidad de `HelpMissionStatus` en la automatizacion del bot."""
     EXECUTED = "executed"
     NONE_AVAILABLE = "none_available"
     FAILED = "failed"
@@ -81,6 +82,8 @@ class RadarQuestConfig:
     claim_button_templates: Sequence[Path]
     laura_button_templates: Sequence[Path]
     overlay_templates: Sequence[Path]
+    treasure_mission_templates: Sequence[Path]
+    treasure_go_button_templates: Sequence[Path]
     special_mission_templates: Sequence[Path]
     special_go_button_templates: Sequence[Path]
     help_mission_templates: Sequence[Path]
@@ -145,6 +148,13 @@ class RadarQuestConfig:
         console = ctx.console
 
         def resolve(names: Sequence[str]) -> List[Path]:
+            """Ejecuta la logica de `resolve` dentro del flujo del bot.
+
+            Args:
+                names: Parametro usado por la rutina.
+            Returns:
+                object: Resultado de la operacion.
+            """
             paths: List[Path] = []
             for name in names:
                 if not name:
@@ -161,8 +171,12 @@ class RadarQuestConfig:
         claim_button_templates = resolve(_ensure_list(params.get("claim_button_templates"), ["radar_claim_button"]))
         laura_button_templates = resolve(_as_list(params.get("laura_button_templates")))
         overlay_templates = resolve(_as_list(params.get("overlay_templates")))
+        treasure_mission_templates = resolve(_as_list(params.get("treasure_mission_templates")))
+        treasure_go_button_templates = resolve(_as_list(params.get("treasure_go_button_templates")))
         special_mission_templates = resolve(_as_list(params.get("special_mission_templates")))
         special_go_button_templates = resolve(_as_list(params.get("special_go_button_templates")))
+        if not treasure_go_button_templates:
+            treasure_go_button_templates = list(special_go_button_templates)
         help_mission_templates = resolve(_as_list(params.get("help_mission_templates")))
         help_go_button_templates = resolve(_as_list(params.get("help_go_button_templates")))
         if not help_go_button_templates:
@@ -187,6 +201,8 @@ class RadarQuestConfig:
             claim_button_templates=claim_button_templates,
             laura_button_templates=laura_button_templates,
             overlay_templates=overlay_templates,
+            treasure_mission_templates=treasure_mission_templates,
+            treasure_go_button_templates=treasure_go_button_templates,
             special_mission_templates=special_mission_templates,
             special_go_button_templates=special_go_button_templates,
             help_mission_templates=help_mission_templates,
@@ -283,8 +299,10 @@ class RadarQuestsTask:
         total_claims = 0
         laura_clicked = False
         special_completed = False
+        treasure_handled = False
         cycles = 0
         handled_help_missions: List[HandledHelpMission] = []
+        handled_treasures: List[Coord] = []
         while cycles < config.max_cycles:
             cycles += 1
             actions = False
@@ -294,6 +312,13 @@ class RadarQuestsTask:
             if not laura_clicked and self._tap_laura_button(ctx, config):
                 laura_clicked = True
                 actions = True
+            if self._execute_treasure_mission(ctx, config, handled_treasures):
+                actions = True
+                treasure_handled = True
+                if not self._ensure_menu_visible(ctx, config):
+                    ctx.console.log("[warning] No se pudo reabrir el panel del radar tras el tesoro")
+                    break
+                continue
             if self._has_special_mission(ctx, config):
                 if self._execute_special_mission(ctx, config):
                     actions = True
@@ -323,8 +348,49 @@ class RadarQuestsTask:
 
         self._close_menu(ctx, config)
 
-        if total_claims > 0 or laura_clicked or special_completed:
+        if total_claims > 0 or laura_clicked or special_completed or treasure_handled:
             tracker_count = self._record_progress(ctx, config.daily_task_name, tracker_count)
+
+    def _execute_treasure_mission(
+        self,
+        ctx: TaskContext,
+        config: RadarQuestConfig,
+        handled_treasures: List[Coord],
+    ) -> bool:
+        """Si hay icono de tesoro: pulsar, tocar 'Ir' y reabrir el panel del radar."""
+        if not ctx.vision or not config.treasure_mission_templates:
+            return False
+        result = ctx.vision.find_any_template(
+            config.treasure_mission_templates,
+            threshold=config.special_mission_threshold,
+        )
+        if not result:
+            return False
+        coords, matched = result
+        if self._coord_already_handled(coords, handled_treasures, radius=42.0):
+            ctx.console.log("[info] Tesoro ya gestionado en estas coordenadas; se omite para evitar loop")
+            return False
+        ctx.console.log(f"Tesoro detectado en radar ('{matched.name}')")
+        ctx.device.tap(coords, label="radar-treasure")
+        if config.tap_delay > 0:
+            ctx.device.sleep(config.tap_delay)
+        if not self._tap_first_template(
+            ctx,
+            config.treasure_go_button_templates,
+            config.special_go_button_threshold,
+            config.special_go_button_timeout,
+            label="radar-treasure-go",
+            delay=config.tap_delay,
+        ):
+            ctx.console.log("[warning] No se encontró el botón 'Ir' del tesoro del radar")
+            return False
+        # No se realiza ninguna acción adicional en el mapa; simplemente reabrimos el panel.
+        if config.special_travel_delay > 0:
+            ctx.device.sleep(config.special_travel_delay)
+        handled_treasures.append(coords)
+        if not self._open_menu(ctx, config):
+            ctx.console.log("[warning] No se pudo abrir el panel del radar tras el tesoro")
+        return True
 
     def _claim_once(self, ctx: TaskContext, config: RadarQuestConfig) -> bool:
         """Busca el botón de reclamo, lo pulsa y maneja overlays posteriores."""
@@ -353,29 +419,58 @@ class RadarQuestsTask:
         """Intenta cerrar los overlays tras reclamar usando templates o taps libres."""
         if not ctx.vision:
             return
-        overlay_closed = dismiss_overlay_if_present(
-            ctx,
-            list(config.overlay_templates) or None,
-            config.overlay_dismiss_button,
-            timeout=config.overlay_timeout,
-            poll_interval=config.overlay_poll_interval,
-            threshold=config.overlay_threshold,
-            delay=config.overlay_dismiss_delay,
-            use_brightness=config.overlay_use_brightness,
-            brightness_threshold=config.overlay_brightness_threshold,
-            fallback_tap=config.overlay_free_tap,
-        )
-        if not overlay_closed:
-            back_coord = ctx.layout.buttons.get("back_button")
-            if back_coord:
-                ctx.device.tap(back_coord, label="radar-overlay-back")
-            elif not tap_back_button(ctx, label="radar-overlay-back"):
-                ctx.console.log(
-                    "[warning] Botón 'back' no detectado tras reclamar en radar; se usará coordenada (539, 0)"
-                )
-                ctx.device.tap((539, 0), label="radar-overlay-fallback")
+        def overlay_still_visible() -> bool:
+            """Ejecuta la logica de `overlay_still_visible` dentro del flujo del bot.
+
+            Returns:
+                object: Resultado de la operacion.
+            """
+            detected, _, _ = wait_for_overlay(
+                ctx,
+                list(config.overlay_templates) or None,
+                timeout=max(0.6, config.overlay_poll_interval),
+                poll_interval=config.overlay_poll_interval,
+                threshold=config.overlay_threshold,
+                use_brightness=config.overlay_use_brightness,
+                brightness_threshold=config.overlay_brightness_threshold,
+                brightness_region=((0.1, 0.9), (0.1, 0.9)),
+            )
+            return detected
+
+        attempts = 0
+        while attempts < 2:
+            overlay_closed = dismiss_overlay_if_present(
+                ctx,
+                list(config.overlay_templates) or None,
+                config.overlay_dismiss_button,
+                timeout=config.overlay_timeout,
+                poll_interval=config.overlay_poll_interval,
+                threshold=config.overlay_threshold,
+                delay=config.overlay_dismiss_delay,
+                use_brightness=config.overlay_use_brightness,
+                brightness_threshold=config.overlay_brightness_threshold,
+                fallback_tap=config.overlay_free_tap,
+            )
+            if not overlay_closed:
+                back_coord = ctx.layout.buttons.get("back_button")
+                if back_coord:
+                    ctx.device.tap(back_coord, label="radar-overlay-back")
+                elif not tap_back_button(ctx, label="radar-overlay-back"):
+                    ctx.console.log(
+                        "[warning] Botón 'back' no detectado tras reclamar en radar; se usará coordenada (539, 0)"
+                    )
+                    ctx.device.tap((539, 0), label="radar-overlay-fallback")
             if config.overlay_dismiss_delay > 0:
                 ctx.device.sleep(config.overlay_dismiss_delay)
+            if not overlay_still_visible():
+                return
+            attempts += 1
+            ctx.console.log("[warning] Overlay del radar sigue visible; se reintenta cierre")
+
+        if overlay_still_visible():
+            ctx.console.log(
+                "[warning] Overlay del radar persiste tras reintentos; se continúa para evitar bloqueo"
+            )
 
     def _tap_laura_button(self, ctx: TaskContext, config: RadarQuestConfig) -> bool:
         """Pulsa el botón de Laura si está disponible para reclamar claves/bonos."""
@@ -552,6 +647,18 @@ class RadarQuestsTask:
         """Determina si una misión ya se atendió comparando coordenadas con tolerancia."""
         for previous, _ in handled:
             if abs(previous[0] - coords[0]) <= tolerance and abs(previous[1] - coords[1]) <= tolerance:
+                return True
+        return False
+
+    def _coord_already_handled(
+        self, coords: Coord, handled: Sequence[Coord], radius: float = 40.0
+    ) -> bool:
+        """Verifica si una coordenada está dentro de un radio de las ya atendidas."""
+        radius_sq = radius * radius
+        for previous in handled:
+            dx = previous[0] - coords[0]
+            dy = previous[1] - coords[1]
+            if dx * dx + dy * dy <= radius_sq:
                 return True
         return False
 
